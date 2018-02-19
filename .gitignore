@@ -1,3 +1,13 @@
+# CLion files
+.idea
+cmake-build-debug
+
+# Data set
+datasets
+
+# Model files
+*.ptb
+
 # Prerequisites
 *.d
 
