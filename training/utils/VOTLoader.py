@@ -15,6 +15,6 @@ class VOTLoader:
             seq_data = {'name': name,
                         'images': [cv2.imread(sub_dir + '/' + fn)
                                    for fn
-                                   in os.listdir(sub_dir)
+                                   in sorted(os.listdir(sub_dir))
                                    if fn.endswith('jpg')]}
             yield seq_data
