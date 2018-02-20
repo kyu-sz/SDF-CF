@@ -6,7 +6,7 @@ cmake-build-debug
 datasets
 
 # Model files
-*.ptb
+*.pth
 
 # Prerequisites
 *.d
