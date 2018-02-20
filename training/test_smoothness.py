@@ -98,14 +98,12 @@ if __name__ == '__main__':
 
             feat = mdnet.forward(Variable(torch.from_numpy(input_tensor),
                                           requires_grad=False))
-            feat /= torch.sum(feat)
             if mdnet_last_feat is not None:
                 mdnet_dist.append(torch.sum(torch.pow(feat - mdnet_last_feat, 2)).data.cpu().numpy()[0])
             mdnet_last_feat = feat
 
             feat = vgg16.forward(Variable(torch.from_numpy(input_tensor),
                                           requires_grad=False))
-            feat /= torch.sum(feat)
             if vgg16_last_feat is not None:
                 vgg16_dist.append(torch.sum(torch.pow(feat - vgg16_last_feat, 2)).data.cpu().numpy()[0])
             vgg16_last_feat = feat
