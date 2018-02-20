@@ -2,26 +2,64 @@ import numpy as np
 from utils import VOTLoader
 import cv2
 import torch
-from models.MDNet import MDNet
+from models.VGGM import VGGM
 from torch.autograd import Variable
+from matplotlib import pyplot as plt
+import scipy.io
+import torchvision.models as models
 
 if __name__ == '__main__':
-    mdnet = MDNet('models/mdnet_vot-otb.pth')
+    mdnet = VGGM(model_path='models/mdnet_vot-otb.pth')
+    vgg16 = VGGM(model_path='models/imagenet-vgg-m-2048.mat')
 
     data_dir = '../datasets/vot2017'
+    mdnet_total_dist = 0
+    vgg16_total_dist = 0
     for seq in VOTLoader.VOTLoader(data_dir):
-        input = np.zeros((len(seq['images']), 3, 224, 224), dtype=np.float32)
+        print('Processing {}'.format(seq['name']))
+        mdnet_last_feat = None
+        vgg16_last_feat = None
+        mdnet_dist = []
+        vgg16_dist = []
         for ind, frame in enumerate(seq['images']):
-            input[ind, :, :, :] = np.transpose(cv2.resize(frame, (224, 224)), (2, 0, 1))
-            cv2.imshow("B", input[ind, 0, :, :] / 256)
-            cv2.imshow("G", input[ind, 1, :, :] / 256)
-            cv2.imshow("R", input[ind, 2, :, :] / 256)
-            cv2.imshow("Resized", cv2.resize(frame, (224, 224)))
-            cv2.imshow(seq['name'], frame)
-            cv2.waitKey(1)
+            input_tensor = np.zeros((1, 3, 224, 224), dtype=np.float32)
+            input_tensor[0, :] = np.transpose(
+                cv2.cvtColor(
+                    cv2.resize(frame, (224, 224)),
+                    cv2.COLOR_BGR2RGB),
+                (2, 0, 1))
 
-        mdnet_conv3_features = mdnet.forward(Variable(torch.from_numpy(input),
-                                                      requires_grad=False))
-        pretrained_conv3_features = []
+            feat = mdnet.forward(Variable(torch.from_numpy(input_tensor),
+                                          requires_grad=False))
+            feat /= torch.sum(feat)
+            if mdnet_last_feat is not None:
+                mdnet_dist.append(torch.sum(torch.pow(feat - mdnet_last_feat, 2)).data.cpu().numpy()[0])
+            mdnet_last_feat = feat
 
-        cv2.destroyWindow(seq['name'])
+            feat = vgg16.forward(Variable(torch.from_numpy(input_tensor),
+                                          requires_grad=False))
+            feat /= torch.sum(feat)
+            if vgg16_last_feat is not None:
+                vgg16_dist.append(torch.sum(torch.pow(feat - vgg16_last_feat, 2)).data.cpu().numpy()[0])
+            vgg16_last_feat = feat
+            vgg16_total_dist += sum(vgg16_dist)
+
+            # cv2.imshow(seq['name'], frame)
+            # cv2.waitKey(1)
+
+        mdnet_seq_dist = sum(mdnet_dist)
+        mdnet_total_dist += mdnet_seq_dist
+        vgg16_seq_dist = sum(vgg16_dist)
+        vgg16_total_dist += vgg16_seq_dist
+
+        print('Distance of MDNet on {}: {}'.format(seq['name'], mdnet_seq_dist))
+        print('Distance of VGG16 on {}: {}'.format(seq['name'], vgg16_seq_dist))
+
+        # plt.figure(seq['name'] + " - MDNet")
+        # plt.plot(mdnet_dist)
+        # plt.pause(0.001)
+
+        # cv2.destroyWindow(seq['name'])
+
+    print('Distance of MDNet: {}'.format(mdnet_total_dist))
+    print('Distance of VGG16: {}'.format(vgg16_total_dist))
