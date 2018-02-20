@@ -1,5 +1,6 @@
 import os
 import cv2
+import numpy as np
 
 
 class VOTLoader:
@@ -17,4 +18,7 @@ class VOTLoader:
                                    for fn
                                    in sorted(os.listdir(sub_dir))
                                    if fn.endswith('jpg')]}
+            with open(sub_dir + '/groundtruth.txt', 'r') as f:
+                seq_data['bbox'] = [np.array([float(s) for s in line.split(',')])
+                                    for line in f]
             yield seq_data
