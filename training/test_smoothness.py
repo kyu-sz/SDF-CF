@@ -5,8 +5,6 @@ import torch
 from models.VGGM import VGGM
 from torch.autograd import Variable
 from matplotlib import pyplot as plt
-import scipy.io
-import torchvision.models as models
 
 if __name__ == '__main__':
     mdnet = VGGM(model_path='models/mdnet_vot-otb.pth')
@@ -47,13 +45,13 @@ if __name__ == '__main__':
             # cv2.imshow(seq['name'], frame)
             # cv2.waitKey(1)
 
-        mdnet_seq_dist = sum(mdnet_dist)
+        mdnet_seq_dist = np.average(mdnet_dist)
         mdnet_total_dist += mdnet_seq_dist
-        vgg16_seq_dist = sum(vgg16_dist)
+        vgg16_seq_dist = np.average(vgg16_dist)
         vgg16_total_dist += vgg16_seq_dist
 
-        print('Distance of MDNet on {}: {}'.format(seq['name'], mdnet_seq_dist))
-        print('Distance of VGG16 on {}: {}'.format(seq['name'], vgg16_seq_dist))
+        print('Average distance of MDNet on {}: {}'.format(seq['name'], mdnet_seq_dist))
+        print('Average distance of VGG16 on {}: {}'.format(seq['name'], vgg16_seq_dist))
 
         # plt.figure(seq['name'] + " - MDNet")
         # plt.plot(mdnet_dist)
@@ -61,5 +59,5 @@ if __name__ == '__main__':
 
         # cv2.destroyWindow(seq['name'])
 
-    print('Distance of MDNet: {}'.format(mdnet_total_dist))
-    print('Distance of VGG16: {}'.format(vgg16_total_dist))
+    print('Average distance of MDNet: {}'.format(mdnet_total_dist))
+    print('Average distance of VGG16: {}'.format(vgg16_total_dist))
