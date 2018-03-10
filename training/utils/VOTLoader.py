@@ -12,6 +12,7 @@ class VOTLoader:
 
     def __iter__(self):
         for name in self._seq_names:
+            print('Loading images of {}...'.format(name))
             sub_dir = self._data_dir + '/' + name
             seq_data = {'name': name,
                         'images': [cv2.imread(sub_dir + '/' + fn)

@@ -40,9 +40,12 @@ class VGGM(nn.Module):
         elif model_url is not None:
             self.layers.load_state_dict(model_zoo.load_url(model_url))
 
+        self.cuda()
+
     def forward(self, x):
+        x = x.cuda()
         for name, module in self.layers.named_children():
             x = module(x)
             if name == 'conv3':
                 x = x.view(x.size(0), -1)
-        return x
+        return x.cpu()

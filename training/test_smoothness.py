@@ -1,5 +1,6 @@
 import numpy as np
 from utils import VOTLoader
+from utils.Timer import Timer
 import cv2
 import torch
 from models.VGGM import VGGM
@@ -96,17 +97,18 @@ if __name__ == '__main__':
                     cv2.COLOR_BGR2RGB),
                 (2, 0, 1))
 
-            feat = mdnet.forward(Variable(torch.from_numpy(input_tensor),
-                                          requires_grad=False))
-            if mdnet_last_feat is not None:
-                mdnet_dist.append(torch.sum(torch.pow(feat - mdnet_last_feat, 2)).data.cpu().numpy()[0])
-            mdnet_last_feat = feat
+            with Timer('Extract features'):
+                feat = mdnet.forward(Variable(torch.from_numpy(input_tensor),
+                                              requires_grad=False))
+                if mdnet_last_feat is not None:
+                    mdnet_dist.append(torch.sum(torch.pow(feat - mdnet_last_feat, 2)).data.cpu().numpy()[0])
+                mdnet_last_feat = feat
 
-            feat = vgg16.forward(Variable(torch.from_numpy(input_tensor),
-                                          requires_grad=False))
-            if vgg16_last_feat is not None:
-                vgg16_dist.append(torch.sum(torch.pow(feat - vgg16_last_feat, 2)).data.cpu().numpy()[0])
-            vgg16_last_feat = feat
+                feat = vgg16.forward(Variable(torch.from_numpy(input_tensor),
+                                              requires_grad=False))
+                if vgg16_last_feat is not None:
+                    vgg16_dist.append(torch.sum(torch.pow(feat - vgg16_last_feat, 2)).data.cpu().numpy()[0])
+                vgg16_last_feat = feat
 
         if len(mdnet_dist) > 0:
             mdnet_seq_dist = np.average(mdnet_dist)
