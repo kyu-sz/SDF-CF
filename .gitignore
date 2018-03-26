@@ -1,9 +1,9 @@
+# Cache files
+__pycache__
+
 # CLion files
 .idea
 cmake-build-debug
-
-# Data set
-datasets
 
 # Model files
 *.pth

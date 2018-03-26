@@ -1,9 +1,9 @@
 import numpy as np
-from utils import VOTLoader
+from utils import vot
 from utils.Timer import Timer
 import cv2
 import torch
-from models.VGGM import VGGM
+from models.vgg_m_2048 import VGG_M_2048
 from torch.autograd import Variable
 from matplotlib import pyplot as plt
 
@@ -13,17 +13,13 @@ def pt2tuple(pt):
 
 
 if __name__ == '__main__':
-    mdnet = VGGM(model_path='models/mdnet_vot-otb.pth')
-    vgg16 = VGGM(model_path='models/imagenet-vgg-m-2048.mat')
+    vgg16 = VGG_M_2048(model_path='models/imagenet_vgg_m_2048.mat')
 
     data_dir = '../datasets/vot2017'
-    mdnet_total_dist = 0
     vgg16_total_dist = 0
-    for seq in VOTLoader.VOTLoader(data_dir):
+    for seq in vot.VOTLoader(data_dir):
         print('Processing {}'.format(seq['name']))
-        mdnet_last_feat = None
         vgg16_last_feat = None
-        mdnet_dist = []
         vgg16_dist = []
         for ind, frame in enumerate(seq['images']):
             canvas = frame.copy()
@@ -111,12 +107,9 @@ if __name__ == '__main__':
                 vgg16_last_feat = feat
 
         if len(mdnet_dist) > 0:
-            mdnet_seq_dist = np.average(mdnet_dist)
-            mdnet_total_dist += mdnet_seq_dist
             vgg16_seq_dist = np.average(vgg16_dist)
             vgg16_total_dist += vgg16_seq_dist
 
-            print('Average distance of MDNet on {}: {}'.format(seq['name'], mdnet_seq_dist))
             print('Average distance of VGG16 on {}: {}'.format(seq['name'], vgg16_seq_dist))
 
         # plt.figure(seq['name'] + " - MDNet")
@@ -125,5 +118,4 @@ if __name__ == '__main__':
 
         # cv2.destroyWindow(seq['name'])
 
-    print('Average distance of MDNet: {}'.format(mdnet_total_dist))
     print('Average distance of VGG16: {}'.format(vgg16_total_dist))
