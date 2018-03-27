@@ -3,9 +3,9 @@ import torch.nn as nn
 
 
 class SmoothnessLoss(nn.Module):
-    def __init__(self, error_bound=0.1):
+    def __init__(self, diff_bound=0.1):
         super(SmoothnessLoss, self).__init__()
-        self._error_bound = error_bound
+        self._error_bound = diff_bound
 
     def forward(self, x, pos, neg):
         return torch.mean(torch.abs(x - pos))\

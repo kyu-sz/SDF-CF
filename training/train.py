@@ -46,12 +46,12 @@ parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
 parser.add_argument('--world-size', default=1, type=int,
                     help='number of distributed processes')
+parser.add_argument('--gpu', default="0,1,2,3", type=str,
+                    help='GPUs for training')
 parser.add_argument('--vis', action='store_true')
 
 best_loss = 0
 
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 torch.manual_seed(0)
 np.random.seed(0)
 random.seed(0)
@@ -64,6 +64,9 @@ def main():
     global args, best_loss
     args = parser.parse_args()
     args.distributed = args.world_size > 1
+
+    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
     # create model
     model = VGG_M_2048(model_path='models/imagenet_vgg_m_2048.mat')
@@ -99,7 +102,7 @@ def main():
     train_sampler = None
     train_loader = torch.utils.data.DataLoader(
         ImageNetVideoDataset('../datasets/ILSVRC', 'train', transforms.Compose([
-            transforms.Resize((512, 512)),
+            transforms.Resize((224, 224)),
             transforms.ToTensor(),
             normalize,
         ])), batch_size=args.batch_size, shuffle=(train_sampler is None),
@@ -107,7 +110,7 @@ def main():
 
     val_loader = torch.utils.data.DataLoader(
         ImageNetVideoDataset('../datasets/ILSVRC', 'val', transforms.Compose([
-            transforms.Resize((384, 384)),
+            transforms.Resize((224, 224)),
             transforms.ToTensor(),
             normalize,
         ])),
@@ -151,7 +154,7 @@ def train(train_loader, model, smoothness_criterion, optimizer, epoch, logger, v
 
     end = time.time()
     for i, (target, pos_peer, neg_peer) in enumerate(train_loader):
-        print('Epoch {} iter {}...'.format(epoch, i))
+        # print('Epoch {} iter {}...'.format(epoch, i))
 
         # measure data loading time
         data_time.update(time.time() - end)

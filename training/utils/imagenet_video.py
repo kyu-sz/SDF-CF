@@ -66,7 +66,8 @@ class ImageNetVideoDataset(data.Dataset):
 
         list_fn = data_dir + '/ImageSets/VID/' + subset + '.txt'
         with open(list_fn, 'r') as f:
-            self._frames = [l.split()[0] for l in f]
+            # Skip first frames of the sequences.
+            self._frames = [l.split()[0] for l in f if int(l.split()[0][-6:]) > 0]
 
         self._transform = transform
         self._loader = loader
@@ -85,24 +86,15 @@ class ImageNetVideoDataset(data.Dataset):
         target_width = cur_annotation['xmax'] - cur_annotation['xmin']
         target_height = cur_annotation['ymax'] - cur_annotation['ymin']
 
-        # Pick positive peer.
-        frame_idx = int(cur_frame[-6:])
-        if frame_idx == 0:
-            # Pick a random shifted and scaled version of the target as the positive peer.
-            pos_peer = cur_img.crop((cur_annotation['xmin'] + target_width * np.random.uniform(-0.1, 0.1),
-                                     cur_annotation['ymin'] + target_height * np.random.uniform(-0.1, 0.1),
-                                     cur_annotation['xmax'] + target_width * np.random.uniform(-0.1, 0.1),
-                                     cur_annotation['ymax'] + target_height * np.random.uniform(-0.1, 0.1)))
-        else:
-            # Use the target from the previous frame as the positive peer.
-            prev_frame = self._frames[index - 1]
-            prev_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + prev_frame + '.JPEG')
-            prev_annotation_fn = self._data_dir + '/Annotations/VID/' + self._subset + '/' + prev_frame + '.xml'
-            prev_annotation = _read_annotation(prev_annotation_fn)
-            pos_peer = prev_img.crop((prev_annotation['xmin'],
-                                      prev_annotation['ymin'],
-                                      prev_annotation['xmax'],
-                                      prev_annotation['ymax']))
+        # Use the target from the previous frame as the positive peer.
+        prev_frame = cur_frame[:-6] + str(int(cur_frame[-6:]) - 1).zfill(6)
+        prev_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + prev_frame + '.JPEG')
+        prev_annotation_fn = self._data_dir + '/Annotations/VID/' + self._subset + '/' + prev_frame + '.xml'
+        prev_annotation = _read_annotation(prev_annotation_fn)
+        pos_peer = prev_img.crop((prev_annotation['xmin'],
+                                  prev_annotation['ymin'],
+                                  prev_annotation['xmax'],
+                                  prev_annotation['ymax']))
 
         # Pick negative peer.
         if self._subset == 'train':
@@ -114,19 +106,11 @@ class ImageNetVideoDataset(data.Dataset):
             neg_xmax = neg_xmin + target_width * np.random.uniform(0.5, 1.5)
             neg_ymax = neg_ymin + target_height * np.random.uniform(0.5, 1.5)
         else:
-            # For validation, use a fixed area as the negative peer.
-            if frame_idx == 0:
-                # There is no previous frame. Use a fixed neighbor area.
-                neg_xmin = max(cur_annotation['xmin'] - target_width / 2, 0)
-                neg_ymin = max(cur_annotation['ymin'] - target_height / 2, 0)
-                neg_xmax = neg_xmin + target_width
-                neg_ymax = neg_ymin + target_height
-            else:
-                # Use the target area in the previous frame.
-                neg_xmin = prev_annotation['xmin']
-                neg_xmax = prev_annotation['xmax']
-                neg_ymin = prev_annotation['ymin']
-                neg_ymax = prev_annotation['ymax']
+            # For validation, use the target area in the previous frame as the negative peer.
+            neg_xmin = prev_annotation['xmin']
+            neg_xmax = prev_annotation['xmax']
+            neg_ymin = prev_annotation['ymin']
+            neg_ymax = prev_annotation['ymax']
 
         neg_peer = cur_img.crop((neg_xmin, neg_ymin, neg_xmax, neg_ymax))
 
@@ -136,9 +120,12 @@ class ImageNetVideoDataset(data.Dataset):
                 pos_peer = TF.hflip(pos_peer)
                 neg_peer = TF.hflip(neg_peer)
 
-        return self._transform(cur_target), \
-               self._transform(pos_peer), \
-               self._transform(neg_peer)
+        if self._transform is not None:
+            return self._transform(cur_target), \
+                   self._transform(pos_peer), \
+                   self._transform(neg_peer)
+        else:
+            return cur_target, pos_peer, neg_peer
 
     def __len__(self):
         return len(self._frames)

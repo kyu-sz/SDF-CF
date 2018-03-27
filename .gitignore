@@ -9,6 +9,9 @@ cmake-build-debug
 *.pth
 *.mat
 
+# Checkpoint files
+*.pth.tar
+
 # Prerequisites
 *.d
 
