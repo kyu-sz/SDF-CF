@@ -3,7 +3,7 @@ import torch.nn as nn
 
 
 class SmoothnessLoss(nn.Module):
-    def __init__(self, diff_bound=0.1):
+    def __init__(self, diff_bound=10):
         super(SmoothnessLoss, self).__init__()
         self._error_bound = diff_bound
 
