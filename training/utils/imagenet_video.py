@@ -45,18 +45,21 @@ def _get_element(xml_block, name):
 def _read_annotation(annotation_fn):
     e = xml.etree.ElementTree.parse(annotation_fn).getroot()
 
-    size_block = _get_element(e, 'size')
-    width = int(_get_element(size_block, 'width').text)
-    height = int(_get_element(size_block, 'height').text)
+    try:
+        size_block = _get_element(e, 'size')
+        width = int(_get_element(size_block, 'width').text)
+        height = int(_get_element(size_block, 'height').text)
 
-    obj_block = _get_element(e, 'object')
-    bndbox_block = _get_element(obj_block, 'bndbox')
-    xmax = int(_get_element(bndbox_block, 'xmax').text)
-    xmin = int(_get_element(bndbox_block, 'xmin').text)
-    ymax = int(_get_element(bndbox_block, 'ymax').text)
-    ymin = int(_get_element(bndbox_block, 'ymin').text)
+        obj_block = _get_element(e, 'object')
+        bndbox_block = _get_element(obj_block, 'bndbox')
+        xmax = int(_get_element(bndbox_block, 'xmax').text)
+        xmin = int(_get_element(bndbox_block, 'xmin').text)
+        ymax = int(_get_element(bndbox_block, 'ymax').text)
+        ymin = int(_get_element(bndbox_block, 'ymin').text)
 
-    return {'width': width, 'height': height, 'xmax': xmax, 'xmin': xmin, 'ymax': ymax, 'ymin': ymin}
+        return {'width': width, 'height': height, 'xmax': xmax, 'xmin': xmin, 'ymax': ymax, 'ymin': ymin}
+    except StopIteration:
+        return None
 
 
 class ImageNetVideoDataset(data.Dataset):
@@ -77,12 +80,15 @@ class ImageNetVideoDataset(data.Dataset):
 
         # Read information of the current target.
         cur_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + cur_frame + '.JPEG')
+
         cur_annotation_fn = self._data_dir + '/Annotations/VID/' + self._subset + '/' + cur_frame + '.xml'
         cur_annotation = _read_annotation(cur_annotation_fn)
+        if cur_annotation is None:
+            return self.__getitem__((index + 1) % len(self))
         cur_target = cur_img.crop((cur_annotation['xmin'],
                                    cur_annotation['ymin'],
                                    cur_annotation['xmax'],
-                                   cur_annotation['ymax']))
+                                   cur_annotation['ymax'])).copy()
         target_width = cur_annotation['xmax'] - cur_annotation['xmin']
         target_height = cur_annotation['ymax'] - cur_annotation['ymin']
 
@@ -91,10 +97,12 @@ class ImageNetVideoDataset(data.Dataset):
         prev_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + prev_frame + '.JPEG')
         prev_annotation_fn = self._data_dir + '/Annotations/VID/' + self._subset + '/' + prev_frame + '.xml'
         prev_annotation = _read_annotation(prev_annotation_fn)
+        if prev_annotation is None:
+            return self.__getitem__((index + 1) % len(self))
         pos_peer = prev_img.crop((prev_annotation['xmin'],
                                   prev_annotation['ymin'],
                                   prev_annotation['xmax'],
-                                  prev_annotation['ymax']))
+                                  prev_annotation['ymax'])).copy()
 
         # Pick negative peer.
         if self._subset == 'train':
@@ -112,7 +120,7 @@ class ImageNetVideoDataset(data.Dataset):
             neg_ymin = prev_annotation['ymin']
             neg_ymax = prev_annotation['ymax']
 
-        neg_peer = cur_img.crop((neg_xmin, neg_ymin, neg_xmax, neg_ymax))
+        neg_peer = cur_img.crop((neg_xmin, neg_ymin, neg_xmax, neg_ymax)).copy()
 
         if self._subset == 'train':
             if np.random.uniform(-1, 1) > 0:

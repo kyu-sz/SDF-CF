@@ -192,6 +192,8 @@ def train(train_loader, model, smoothness_criterion, optimizer, epoch, logger, v
 
         logger.scalar_summary('training/losses', smoothness_loss.data[0], epoch * len(train_loader) + i)
 
+        # print('Epoch {} iter {} finished!'.format(epoch, i))
+
 
 def validate(val_loader, model, smoothness_criterion, epoch, logger):
     batch_time = AverageMeter()
