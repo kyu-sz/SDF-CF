@@ -111,9 +111,9 @@ class ImageNetVideoDataset(data.Dataset):
                                  prev_annotation['ymax'] - prev_annotation['ymin']) * scale,
                              min(prev_annotation['width'], prev_annotation['height']))
         pos_xmin = max(0, int(pos_x_mid - patch_size / 2))
-        pos_xmax = max(0, int(pos_y_mid - patch_size / 2))
-        pos_ymin = pos_xmin + pos_patch_size
-        pos_ymax = pos_xmax + pos_patch_size
+        pos_ymin = max(0, int(pos_y_mid - patch_size / 2))
+        pos_xmax = pos_xmin + pos_patch_size
+        pos_ymax = pos_ymin + pos_patch_size
         pos_peer = prev_img.crop((pos_xmin,
                                   pos_ymin,
                                   pos_xmax,
@@ -141,8 +141,8 @@ class ImageNetVideoDataset(data.Dataset):
                                      prev_annotation['ymax'] - prev_annotation['ymin']) * scale,
                                  min(cur_annotation['width'], cur_annotation['height']))
             neg_xmin = max(0, int(neg_x_mid - neg_patch_size / 2))
-            neg_xmax = max(0, int(neg_y_mid - neg_patch_size / 2))
-            neg_ymin = xmin + patch_size
+            neg_ymin = max(0, int(neg_y_mid - neg_patch_size / 2))
+            neg_xmax = xmin + patch_size
             neg_ymax = ymin + patch_size
 
         neg_peer = cur_img.crop((neg_xmin, neg_ymin, neg_xmax, neg_ymax)).copy()
