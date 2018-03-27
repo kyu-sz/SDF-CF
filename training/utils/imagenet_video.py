@@ -79,8 +79,9 @@ class ImageNetVideoDataset(data.Dataset):
         cur_frame = self._frames[index]
         prev_frame = cur_frame[:-6] + str(int(cur_frame[-6:]) - 1).zfill(6)
 
-        # Read annotation of the target in the current frame and the previous frame.
+        scale = np.random.uniform(0.5, 1.1) if self._subset == 'train' else 1
 
+        # Read annotation of the target in the current frame and the previous frame.
         cur_annotation_fn = self._data_dir + '/Annotations/VID/' + self._subset + '/' + cur_frame + '.xml'
         cur_annotation = _read_annotation(cur_annotation_fn)
         if cur_annotation is None:
@@ -94,7 +95,7 @@ class ImageNetVideoDataset(data.Dataset):
         x_mid = (cur_annotation['xmin'] + cur_annotation['xmax']) / 2
         y_mid = (cur_annotation['ymin'] + cur_annotation['ymax']) / 2
         patch_size = min(max(cur_annotation['xmax'] - cur_annotation['xmin'],
-                             cur_annotation['ymax'] - cur_annotation['ymin']),
+                             cur_annotation['ymax'] - cur_annotation['ymin']) * scale,
                          min(cur_annotation['width'], cur_annotation['height']))
         xmin = max(0, int(x_mid - patch_size / 2))
         ymin = max(0, int(y_mid - patch_size / 2))
@@ -107,7 +108,7 @@ class ImageNetVideoDataset(data.Dataset):
         pos_x_mid = (prev_annotation['xmin'] + prev_annotation['xmax']) / 2
         pos_y_mid = (prev_annotation['ymin'] + prev_annotation['ymax']) / 2
         pos_patch_size = min(max(prev_annotation['xmax'] - prev_annotation['xmin'],
-                                 prev_annotation['ymax'] - prev_annotation['ymin']),
+                                 prev_annotation['ymax'] - prev_annotation['ymin']) * scale,
                              min(prev_annotation['width'], prev_annotation['height']))
         pos_xmin = max(0, int(pos_x_mid - patch_size / 2))
         pos_xmax = max(0, int(pos_y_mid - patch_size / 2))
@@ -137,7 +138,7 @@ class ImageNetVideoDataset(data.Dataset):
             neg_x_mid = (prev_annotation['xmin'] + prev_annotation['xmax']) / 2
             neg_y_mid = (prev_annotation['ymin'] + prev_annotation['ymax']) / 2
             neg_patch_size = min(max(prev_annotation['xmax'] - prev_annotation['xmin'],
-                                     prev_annotation['ymax'] - prev_annotation['ymin']),
+                                     prev_annotation['ymax'] - prev_annotation['ymin']) * scale,
                                  min(cur_annotation['width'], cur_annotation['height']))
             neg_xmin = max(0, int(neg_x_mid - neg_patch_size / 2))
             neg_xmax = max(0, int(neg_y_mid - neg_patch_size / 2))
