@@ -11,6 +11,7 @@ import numpy as np
 import math
 from itertools import groupby
 import xml.etree.ElementTree
+import torchvision.transforms.functional as TF
 
 
 def pil_loader(path):
@@ -121,7 +122,15 @@ class ImageNetVideoDataset(data.Dataset):
 
         neg_peer = cur_img.crop(neg_xmin, neg_ymin, neg_xmax, neg_ymax)
 
-        return cur_target, pos_peer, neg_peer
+        if self._subset == 'train':
+            if np.random.uniform(-1, 1) > 0:
+                cur_target = TF.hflip(cur_target)
+                pos_peer = TF.hflip(pos_peer)
+                neg_peer = TF.hflip(neg_peer)
+
+        return self._transform(cur_target), \
+               self._transform(pos_peer), \
+               self._transform(neg_peer)
 
     def __len__(self):
         return len(self._frames)
