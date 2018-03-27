@@ -20,6 +20,8 @@ from utils.logger import Logger
 from utils.smoothness_loss import SmoothnessLoss
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
+parser.add_argument('--dataset-dir', type=str, metavar='N',
+                    help='directory of the dataset')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=2, type=int, metavar='N',
@@ -49,13 +51,13 @@ parser.add_argument('--vis', action='store_true')
 best_loss = 0
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 torch.manual_seed(0)
 np.random.seed(0)
 random.seed(0)
 
-INPUT_MEAN = [0.485, 0.456, 0.406]
-INPUT_STD = [0.229, 0.224, 0.225]
+INPUT_MEAN = [123.6591, 116.7663, 103.9318]
+INPUT_STD = [1, 1, 1]
 
 
 def main():
@@ -67,7 +69,7 @@ def main():
     model = VGG_M_2048(model_path='models/imagenet_vgg_m_2048.mat')
     print(model)
 
-    model.features = torch.nn.DataParallel(model.features)
+    model = torch.nn.DataParallel(model)
     model.cuda()
 
     criterion = SmoothnessLoss().cuda()
@@ -125,7 +127,7 @@ def main():
         if epoch % args.eval_freq == 0 or epoch == args.epochs - 1:
             loss = validate(val_loader, model, criterion, epoch, logger)
             # remember best prec@1 and save checkpoint
-            is_best = loss > best_loss
+            is_best = loss < best_loss
             best_loss = min(loss, best_loss)
             save_checkpoint({
                 'epoch': epoch + 1,
@@ -149,6 +151,8 @@ def train(train_loader, model, smoothness_criterion, optimizer, epoch, logger, v
 
     end = time.time()
     for i, (target, pos_peer, neg_peer) in enumerate(train_loader):
+        print('Epoch {} iter {}...'.format(epoch, i))
+
         # measure data loading time
         data_time.update(time.time() - end)
 
@@ -184,9 +188,6 @@ def train(train_loader, model, smoothness_criterion, optimizer, epoch, logger, v
                 data_time=data_time, loss=losses))
 
         logger.scalar_summary('training/losses', smoothness_loss.data[0], epoch * len(train_loader) + i)
-        for value in model.parameters():
-            logger.histo_summary('weights', to_np(value), epoch * len(train_loader) + i)
-            logger.histo_summary('gradients', to_np(value.grad), epoch * len(train_loader) + i)
 
 
 def validate(val_loader, model, smoothness_criterion, epoch, logger):
@@ -198,9 +199,9 @@ def validate(val_loader, model, smoothness_criterion, epoch, logger):
 
     end = time.time()
     for i, (target, pos_peer, neg_peer) in enumerate(val_loader):
-        target_var = torch.autograd.Variable(target, requires_grad=True)
-        pos_peer_var = torch.autograd.Variable(pos_peer, requires_grad=True)
-        neg_peer_var = torch.autograd.Variable(neg_peer, requires_grad=True)
+        target_var = torch.autograd.Variable(target, requires_grad=True).cuda(async=True)
+        pos_peer_var = torch.autograd.Variable(pos_peer, requires_grad=True).cuda(async=True)
+        neg_peer_var = torch.autograd.Variable(neg_peer, requires_grad=True).cuda(async=True)
 
         target_output = model.forward(target_var, ['relu5', 'prob', 'bbox_reg'])
         pos_output = model.forward(pos_peer_var, ['relu5'])['relu5']
@@ -217,7 +218,7 @@ def validate(val_loader, model, smoothness_criterion, epoch, logger):
 
     logger.scalar_summary('validation/losses', losses.avg, epoch)
 
-    print(' * Losses {losses.avg:.3f}'
+    print(' * Validation losses {losses.avg:.3f}'
           .format(losses=losses))
 
     return losses.avg

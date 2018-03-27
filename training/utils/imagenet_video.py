@@ -1,17 +1,9 @@
-import os
-import cv2
-import numpy as np
-
-import torch.utils.data as data
-
-from PIL import Image
-import os
-import os.path
-import numpy as np
-import math
-from itertools import groupby
 import xml.etree.ElementTree
+
+import numpy as np
+import torch.utils.data as data
 import torchvision.transforms.functional as TF
+from PIL import Image
 
 
 def pil_loader(path):
@@ -84,12 +76,12 @@ class ImageNetVideoDataset(data.Dataset):
 
         # Read information of the current target.
         cur_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + cur_frame + '.JPEG')
-        cur_annotation_fn = self._loader(self._data_dir + '/Annotations/VID/' + self._subset + '/' + cur_frame + '.xml')
+        cur_annotation_fn = self._data_dir + '/Annotations/VID/' + self._subset + '/' + cur_frame + '.xml'
         cur_annotation = _read_annotation(cur_annotation_fn)
-        cur_target = cur_img.crop(cur_annotation['xmin'],
-                                  cur_annotation['ymin'],
-                                  cur_annotation['xmax'],
-                                  cur_annotation['ymax'])
+        cur_target = cur_img.crop((cur_annotation['xmin'],
+                                   cur_annotation['ymin'],
+                                   cur_annotation['xmax'],
+                                   cur_annotation['ymax']))
         target_width = cur_annotation['xmax'] - cur_annotation['xmin']
         target_height = cur_annotation['ymax'] - cur_annotation['ymin']
 
@@ -97,21 +89,20 @@ class ImageNetVideoDataset(data.Dataset):
         frame_idx = int(cur_frame[-6:])
         if frame_idx == 0:
             # Pick a random shifted and scaled version of the target as the positive peer.
-            pos_peer = cur_img.crop(cur_annotation['xmin'] + target_width * np.random.uniform(-0.1, 0.1),
-                                    cur_annotation['ymin'] + target_height * np.random.uniform(-0.1, 0.1),
-                                    cur_annotation['xmax'] + target_width * np.random.uniform(-0.1, 0.1),
-                                    cur_annotation['ymax'] + target_height * np.random.uniform(-0.1, 0.1))
+            pos_peer = cur_img.crop((cur_annotation['xmin'] + target_width * np.random.uniform(-0.1, 0.1),
+                                     cur_annotation['ymin'] + target_height * np.random.uniform(-0.1, 0.1),
+                                     cur_annotation['xmax'] + target_width * np.random.uniform(-0.1, 0.1),
+                                     cur_annotation['ymax'] + target_height * np.random.uniform(-0.1, 0.1)))
         else:
             # Use the target from the previous frame as the positive peer.
             prev_frame = self._frames[index - 1]
             prev_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + prev_frame + '.JPEG')
-            prev_annotation_fn = self._loader(self._data_dir + '/Annotations/VID/'
-                                              + self._subset + '/' + prev_frame + '.xml')
+            prev_annotation_fn = self._data_dir + '/Annotations/VID/' + self._subset + '/' + prev_frame + '.xml'
             prev_annotation = _read_annotation(prev_annotation_fn)
-            pos_peer = prev_img.crop(prev_annotation['xmin'],
-                                     prev_annotation['ymin'],
-                                     prev_annotation['xmax'],
-                                     prev_annotation['ymax'])
+            pos_peer = prev_img.crop((prev_annotation['xmin'],
+                                      prev_annotation['ymin'],
+                                      prev_annotation['xmax'],
+                                      prev_annotation['ymax']))
 
         # Pick negative peer.
         if self._subset == 'train':
@@ -137,7 +128,7 @@ class ImageNetVideoDataset(data.Dataset):
                 neg_ymin = prev_annotation['ymin']
                 neg_ymax = prev_annotation['ymax']
 
-        neg_peer = cur_img.crop(neg_xmin, neg_ymin, neg_xmax, neg_ymax)
+        neg_peer = cur_img.crop((neg_xmin, neg_ymin, neg_xmax, neg_ymax))
 
         if self._subset == 'train':
             if np.random.uniform(-1, 1) > 0:

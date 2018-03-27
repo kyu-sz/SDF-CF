@@ -31,7 +31,7 @@ class VGG_M_2048(nn.Module):
             ('relu7', nn.ReLU())]))
         self.classifier = nn.Sequential(OrderedDict([
             ('fc8', nn.Conv2d(2048, 1000, kernel_size=1, stride=1, padding=0)),
-            ('prob', nn.Softmax())]))
+            ('prob', nn.Softmax(dim=1))]))
         self.bbox_reg = nn.Sequential(OrderedDict([
             ('bbox_reg', nn.Conv2d(2048, 4, kernel_size=1, stride=1, padding=0))]))
 
@@ -54,8 +54,6 @@ class VGG_M_2048(nn.Module):
                 raise NotImplementedError
         elif model_url is not None:
             self.features.load_state_dict(model_zoo.load_url(model_url))
-
-        self.cuda()
 
     def save(self, model_path):
         if model_path.endswith('mat'):
