@@ -82,6 +82,7 @@ class ImageNetVideoDataset(data.Dataset):
     def __getitem__(self, index):
         cur_frame = self._frames[index]
 
+        # Read information of the current target.
         cur_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + cur_frame + '.JPEG')
         cur_annotation_fn = self._loader(self._data_dir + '/Annotations/VID/' + self._subset + '/' + cur_frame + '.xml')
         cur_annotation = _read_annotation(cur_annotation_fn)
@@ -92,6 +93,7 @@ class ImageNetVideoDataset(data.Dataset):
         target_width = cur_annotation['xmax'] - cur_annotation['xmin']
         target_height = cur_annotation['ymax'] - cur_annotation['ymin']
 
+        # Pick positive peer.
         frame_idx = int(cur_frame[-6:])
         if frame_idx == 0:
             # Pick a random shifted and scaled version of the target as the positive peer.
@@ -99,7 +101,6 @@ class ImageNetVideoDataset(data.Dataset):
                                     cur_annotation['ymin'] + target_height * np.random.uniform(-0.1, 0.1),
                                     cur_annotation['xmax'] + target_width * np.random.uniform(-0.1, 0.1),
                                     cur_annotation['ymax'] + target_height * np.random.uniform(-0.1, 0.1))
-            pass
         else:
             # Use the target from the previous frame as the positive peer.
             prev_frame = self._frames[index - 1]
@@ -112,13 +113,29 @@ class ImageNetVideoDataset(data.Dataset):
                                      prev_annotation['xmax'],
                                      prev_annotation['ymax'])
 
-        # Pick a neighboring area as the negative peer.
-        neg_xmin = cur_annotation['xmin'] \
-                   + target_width * np.random.uniform(0.5, 0.8) * np.sign(np.random.uniform(-1, 1))
-        neg_ymin = cur_annotation['ymin'] \
-                   + target_height * np.random.uniform(0.5, 0.8) * np.sign(np.random.uniform(-1, 1))
-        neg_xmax = neg_xmin + target_width * np.random.uniform(0.5, 1.5)
-        neg_ymax = neg_ymin + target_height * np.random.uniform(0.5, 1.5)
+        # Pick negative peer.
+        if self._subset == 'train':
+            # For training, pick a neighboring area as the negative peer.
+            neg_xmin = cur_annotation['xmin'] \
+                       + target_width * np.random.uniform(0.5, 0.8) * np.sign(np.random.uniform(-1, 1))
+            neg_ymin = cur_annotation['ymin'] \
+                       + target_height * np.random.uniform(0.5, 0.8) * np.sign(np.random.uniform(-1, 1))
+            neg_xmax = neg_xmin + target_width * np.random.uniform(0.5, 1.5)
+            neg_ymax = neg_ymin + target_height * np.random.uniform(0.5, 1.5)
+        else:
+            # For validation, use a fixed area as the negative peer.
+            if frame_idx == 0:
+                # There is no previous frame. Use a fixed neighbor area.
+                neg_xmin = max(cur_annotation['xmin'] - target_width / 2, 0)
+                neg_ymin = max(cur_annotation['ymin'] - target_height / 2, 0)
+                neg_xmax = neg_xmin + target_width
+                neg_ymax = neg_ymin + target_height
+            else:
+                # Use the target area in the previous frame.
+                neg_xmin = prev_annotation['xmin']
+                neg_xmax = prev_annotation['xmax']
+                neg_ymin = prev_annotation['ymin']
+                neg_ymax = prev_annotation['ymax']
 
         neg_peer = cur_img.crop(neg_xmin, neg_ymin, neg_xmax, neg_ymax)
 
