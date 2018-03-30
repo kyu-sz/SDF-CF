@@ -1,6 +1,6 @@
 import numpy as np
 from utils import vot
-from utils.Timer import Timer
+from utils.timer import Timer
 import cv2
 import torch
 from models.vgg_m_2048 import VGG_M_2048

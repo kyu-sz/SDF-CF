@@ -1,6 +1,7 @@
 import xml.etree.ElementTree
 
 import numpy as np
+import torch
 import torch.utils.data as data
 import torchvision.transforms.functional as TF
 from PIL import Image
@@ -91,6 +92,7 @@ class ImageNetVideoDataset(data.Dataset):
         if prev_annotation is None:
             return self.__getitem__((index + 1) % len(self))
 
+        # Crop the patch of the target in the current frame.
         cur_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + cur_frame + '.JPEG')
         x_mid = (cur_annotation['xmin'] + cur_annotation['xmax']) / 2
         y_mid = (cur_annotation['ymin'] + cur_annotation['ymax']) / 2
@@ -102,6 +104,12 @@ class ImageNetVideoDataset(data.Dataset):
         xmax = xmin + patch_size
         ymax = ymin + patch_size
         cur_target = cur_img.crop((xmin, ymin, xmax, ymax)).copy()
+
+        # Calculate bounding box regression target.
+        bbox_x = (cur_annotation['xmin'] + cur_annotation['xmax'] - xmin - xmax) / 2 / patch_size
+        bbox_y = (cur_annotation['ymin'] + cur_annotation['ymax'] - ymin - ymax) / 2 / patch_size
+        bbox_width = (cur_annotation['xmax'] - cur_annotation['xmin']) / patch_size
+        bbox_height = (cur_annotation['ymax'] - cur_annotation['ymin']) / patch_size
 
         # Use the target from the previous frame as the positive peer.
         prev_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + prev_frame + '.JPEG')
@@ -158,7 +166,7 @@ class ImageNetVideoDataset(data.Dataset):
                    self._transform(pos_peer), \
                    self._transform(neg_peer)
         else:
-            return cur_target, pos_peer, neg_peer
+            return cur_target, pos_peer, neg_peer, torch.FloatTensor([bbox_x, bbox_y, bbox_width, bbox_height])
 
     def __len__(self):
         return len(self._frames)
