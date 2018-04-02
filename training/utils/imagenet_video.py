@@ -5,6 +5,7 @@ import torch
 import torch.utils.data as data
 import torchvision.transforms.functional as TF
 from PIL import Image
+from utils import bb_intersection_over_union
 
 
 def pil_loader(path):
@@ -126,6 +127,10 @@ class ImageNetVideoDataset(data.Dataset):
                                   pos_ymin,
                                   pos_xmax,
                                   pos_ymax)).copy()
+        pos_bbox_x = (prev_annotation['xmin'] + prev_annotation['xmax'] - pos_xmin - pos_xmax) / 2 / pos_patch_size
+        pos_bbox_y = (prev_annotation['ymin'] + prev_annotation['ymax'] - pos_ymin - pos_ymax) / 2 / pos_patch_size
+        pos_bbox_width = (prev_annotation['xmax'] - prev_annotation['xmin']) / pos_patch_size
+        pos_bbox_height = (prev_annotation['ymax'] - prev_annotation['ymin']) / pos_patch_size
 
         # Pick negative peer.
         if self._subset == 'train':
@@ -166,7 +171,12 @@ class ImageNetVideoDataset(data.Dataset):
                    self._transform(pos_peer), \
                    self._transform(neg_peer)
         else:
-            return cur_target, pos_peer, neg_peer, torch.FloatTensor([bbox_x, bbox_y, bbox_width, bbox_height])
+            # noinspection PyArgumentList
+            return cur_target,\
+                   pos_peer,\
+                   neg_peer,\
+                   torch.FloatTensor([bbox_x, bbox_y, bbox_width, bbox_height]),\
+                   torch.FloatTensor([pos_bbox_x, pos_bbox_y, pos_bbox_width, pos_bbox_height])
 
     def __len__(self):
         return len(self._frames)

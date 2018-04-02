@@ -18,7 +18,7 @@ import visdom
 from models.vgg_m_2048 import VGG_M_2048
 from utils.imagenet_video import ImageNetVideoDataset
 from utils.logger import Logger
-from utils.smoothness_loss import SmoothnessLoss
+from utils.masked_smoothness_loss import MaskedSmoothnessLoss
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--dataset-dir', type=str, metavar='N',
@@ -76,8 +76,8 @@ def main():
     model = torch.nn.DataParallel(model)
     model.cuda()
 
-    smoothness_criterion = SmoothnessLoss().cuda()
-    bbox_criterion = nn.BCELoss().cuda()
+    smoothness_criterion = MaskedSmoothnessLoss().cuda()
+    bbox_criterion = nn.MSELoss().cuda()
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
@@ -156,7 +156,7 @@ def train(train_loader, model, smoothness_criterion, bbox_criterion, optimizer, 
     model.train()
 
     end = time.time()
-    for i, (target, pos_peer, neg_peer, bbox_target) in enumerate(train_loader):
+    for i, (target, pos_peer, neg_peer, bbox, pos_bbox) in enumerate(train_loader):
         # print('Epoch {} iter {}...'.format(epoch, i))
 
         # measure data loading time
@@ -172,8 +172,8 @@ def train(train_loader, model, smoothness_criterion, bbox_criterion, optimizer, 
         neg_output = model.forward(neg_peer_var, ['relu5'])['relu5']
 
         # Compute losses.
-        smoothness_loss = smoothness_criterion(target_output['relu5'], pos_output, neg_output)
-        bbox_loss = bbox_criterion(target_output['bbox_reg'], bbox_target)
+        smoothness_loss = smoothness_criterion(target_output['relu5'], pos_output, neg_output, bbox, pos_bbox)
+        bbox_loss = bbox_criterion(target_output['bbox_reg'], bbox)
         total_loss = smoothness_loss + bbox_loss
 
         # measure metrics and record loss
@@ -211,7 +211,7 @@ def validate(val_loader, model, smoothness_criterion, bbox_criterion, epoch, log
     model.eval()
 
     end = time.time()
-    for i, (target, pos_peer, neg_peer, bbox_target) in enumerate(val_loader):
+    for i, (target, pos_peer, neg_peer, bbox) in enumerate(val_loader):
         target_var = torch.autograd.Variable(target, requires_grad=True).cuda(async=True)
         pos_peer_var = torch.autograd.Variable(pos_peer, requires_grad=True).cuda(async=True)
         neg_peer_var = torch.autograd.Variable(neg_peer, requires_grad=True).cuda(async=True)
