@@ -17,6 +17,7 @@ import visdom
 
 from models.vgg_m_2048 import VGG_M_2048
 from utils.imagenet_video import ImageNetVideoDataset
+from utils.imagenet import ImageNetDataset
 from utils.logger import Logger
 from utils.masked_smoothness_loss import MaskedSmoothnessLoss
 
@@ -78,6 +79,7 @@ def main():
 
     smoothness_criterion = MaskedSmoothnessLoss().cuda()
     bbox_criterion = nn.MSELoss().cuda()
+    classification_criterion = nn.MSELoss().cuda()
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
@@ -102,22 +104,23 @@ def main():
     normalize = transforms.Normalize(mean=INPUT_MEAN,
                                      std=INPUT_STD)
     train_sampler = None
-    train_loader = torch.utils.data.DataLoader(
-        ImageNetVideoDataset('../datasets/ILSVRC', 'train', transforms.Compose([
+    img_transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
             normalize,
-        ])), batch_size=args.batch_size, shuffle=(train_sampler is None),
+        ])
+    smoothness_train_loader = torch.utils.data.DataLoader(
+        ImageNetVideoDataset('../datasets/ImageNetVideo/ILSVRC', 'train', img_transform),
+        batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)
-
-    val_loader = torch.utils.data.DataLoader(
-        ImageNetVideoDataset('../datasets/ILSVRC', 'val', transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            normalize,
-        ])),
+    smoothness_val_loader = torch.utils.data.DataLoader(
+        ImageNetVideoDataset('../datasets/ImageNetVideo/ILSVRC', 'val', img_transform),
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
+    classification_train_loader = torch.utils.data.DataLoader(
+        ImageNetDataset('../datasets/ImageNet', img_transform),
+        batch_size=args.batch_size, shuffle=(train_sampler is None),
+        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
 
     logger = Logger('tflogs', name='smooth')
     vis = visdom.Visdom(port=7236)
@@ -125,12 +128,15 @@ def main():
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch)
 
-        # train for one epoch
-        train(train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch, logger, vis)
+        # train smoothness and classification in one epoch
+        train_smoothness(smoothness_train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch,
+                         logger, vis)
+        train_classfication(classification_train_loader, model, classification_criterion, optimizer, epoch,
+                            logger, vis)
 
-        # evaluate on validation set
+        # evaluate smoothness on validation set
         if epoch % args.eval_freq == 0 or epoch == args.epochs - 1:
-            loss = validate(val_loader, model, smoothness_criterion, bbox_criterion, epoch, logger)
+            loss = validate(smoothness_val_loader, model, smoothness_criterion, bbox_criterion, epoch, logger)
             # remember best prec@1 and save checkpoint
             is_best = loss < best_loss
             best_loss = min(loss, best_loss)
@@ -146,7 +152,11 @@ def to_np(x):
     return x.data.cpu().numpy()
 
 
-def train(train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch, logger, vis):
+def train_classfication(train_loader, model, criterion, optimizer, epoch, logger, vis):
+    pass
+
+
+def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch, logger, vis):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     smoothness_losses = AverageMeter()
