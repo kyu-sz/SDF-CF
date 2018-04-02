@@ -1,4 +1,5 @@
 from collections import OrderedDict
+from itertools import chain
 
 import numpy as np
 import scipy.io
@@ -56,12 +57,29 @@ class VGG_M_2048(nn.Module):
             self.features.load_state_dict(model_zoo.load_url(model_url))
 
     def save(self, model_path):
+        self.cpu()
         if model_path.endswith('mat'):
-            raise NotImplementedError
+            model_dict = {'layers': []}
+            for name, module in chain(self.features.named_children(),
+                                      self.classifier.named_children(),
+                                      self.bbox_reg.named_children()):
+                layer = {'name': name,
+                         'type': 'conv',
+                         'weights': [module.weight.data.numpy(), module.bias.data.numpy()],
+                         'size': [module.kernel_size[0],
+                                  module.kernel_size[1],
+                                  module.in_channels,
+                                  module.out_channels],
+                         'pad': [0, 0, 0, 0],
+                         'stride': [module.stride[0], module.stride[0], module.stride[1], module.stride[1]],
+                         'dilation': [module.dilation[0], module.dilation[1]]}
+                model_dict['layers'].append(layer)
+            scipy.io.savemat(model_path, mdict=model_dict)
         elif model_path.endswith('pth'):
             raise NotImplementedError
         else:
             raise NotImplementedError
+        self.cuda()
 
     def forward(self, x, output_layers):
         output_dict = {}
