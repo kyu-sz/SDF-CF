@@ -37,40 +37,40 @@ class ImageNetVideoDataset(data.Dataset):
 
         # Crop the patch of the target in the current frame.
         cur_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + cur_frame + '.JPEG')
-        x_mid = (cur_annotation['xmin'] + cur_annotation['xmax']) / 2
-        y_mid = (cur_annotation['ymin'] + cur_annotation['ymax']) / 2
+        x_mid = (cur_annotation['xmin'] + cur_annotation['xmax']) * 0.5
+        y_mid = (cur_annotation['ymin'] + cur_annotation['ymax']) * 0.5
         patch_size = min(max(cur_annotation['xmax'] - cur_annotation['xmin'],
                              cur_annotation['ymax'] - cur_annotation['ymin']) * scale,
                          min(cur_annotation['width'], cur_annotation['height']))
-        xmin = max(0, int(x_mid - patch_size / 2))
-        ymin = max(0, int(y_mid - patch_size / 2))
+        xmin = max(0, int(x_mid - patch_size * 0.5))
+        ymin = max(0, int(y_mid - patch_size * 0.5))
         xmax = xmin + patch_size
         ymax = ymin + patch_size
-        cur_target = cur_img.crop((xmin, ymin, xmax, ymax)).copy()
+        cur_target = cur_img.crop((xmin, ymin, xmax, ymax))
 
         # Calculate bounding box regression target.
-        bbox_x = (cur_annotation['xmin'] + cur_annotation['xmax'] - xmin - xmax) / 2 / patch_size
-        bbox_y = (cur_annotation['ymin'] + cur_annotation['ymax'] - ymin - ymax) / 2 / patch_size
+        bbox_x = (cur_annotation['xmin'] + cur_annotation['xmax'] - xmin - xmax) * 0.5 / patch_size
+        bbox_y = (cur_annotation['ymin'] + cur_annotation['ymax'] - ymin - ymax) * 0.5 / patch_size
         bbox_width = (cur_annotation['xmax'] - cur_annotation['xmin']) / patch_size
         bbox_height = (cur_annotation['ymax'] - cur_annotation['ymin']) / patch_size
 
         # Use the target from the previous frame as the positive peer.
         prev_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + prev_frame + '.JPEG')
-        pos_x_mid = (prev_annotation['xmin'] + prev_annotation['xmax']) / 2
-        pos_y_mid = (prev_annotation['ymin'] + prev_annotation['ymax']) / 2
+        pos_x_mid = (prev_annotation['xmin'] + prev_annotation['xmax']) * 0.5
+        pos_y_mid = (prev_annotation['ymin'] + prev_annotation['ymax']) * 0.5
         pos_patch_size = min(max(prev_annotation['xmax'] - prev_annotation['xmin'],
                                  prev_annotation['ymax'] - prev_annotation['ymin']) * scale,
                              min(prev_annotation['width'], prev_annotation['height']))
-        pos_xmin = max(0, int(pos_x_mid - patch_size / 2))
-        pos_ymin = max(0, int(pos_y_mid - patch_size / 2))
+        pos_xmin = max(0, int(pos_x_mid - patch_size * 0.5))
+        pos_ymin = max(0, int(pos_y_mid - patch_size * 0.5))
         pos_xmax = pos_xmin + pos_patch_size
         pos_ymax = pos_ymin + pos_patch_size
         pos_peer = prev_img.crop((pos_xmin,
                                   pos_ymin,
                                   pos_xmax,
-                                  pos_ymax)).copy()
-        pos_bbox_x = (prev_annotation['xmin'] + prev_annotation['xmax'] - pos_xmin - pos_xmax) / 2 / pos_patch_size
-        pos_bbox_y = (prev_annotation['ymin'] + prev_annotation['ymax'] - pos_ymin - pos_ymax) / 2 / pos_patch_size
+                                  pos_ymax))
+        pos_bbox_x = (prev_annotation['xmin'] + prev_annotation['xmax'] - pos_xmin - pos_xmax) * 0.5 / pos_patch_size
+        pos_bbox_y = (prev_annotation['ymin'] + prev_annotation['ymax'] - pos_ymin - pos_ymax) * 0.5 / pos_patch_size
         pos_bbox_width = (prev_annotation['xmax'] - prev_annotation['xmin']) / pos_patch_size
         pos_bbox_height = (prev_annotation['ymax'] - prev_annotation['ymin']) / pos_patch_size
 
@@ -90,17 +90,17 @@ class ImageNetVideoDataset(data.Dataset):
             neg_ymax = neg_ymin + neg_patch_size
         else:
             # For validation, use the target area in the previous frame as the negative peer.
-            neg_x_mid = (prev_annotation['xmin'] + prev_annotation['xmax']) / 2
-            neg_y_mid = (prev_annotation['ymin'] + prev_annotation['ymax']) / 2
+            neg_x_mid = (prev_annotation['xmin'] + prev_annotation['xmax']) * 0.5
+            neg_y_mid = (prev_annotation['ymin'] + prev_annotation['ymax']) * 0.5
             neg_patch_size = min(max(prev_annotation['xmax'] - prev_annotation['xmin'],
                                      prev_annotation['ymax'] - prev_annotation['ymin']) * scale,
                                  min(cur_annotation['width'], cur_annotation['height']))
-            neg_xmin = max(0, int(neg_x_mid - neg_patch_size / 2))
-            neg_ymin = max(0, int(neg_y_mid - neg_patch_size / 2))
+            neg_xmin = max(0, int(neg_x_mid - neg_patch_size * 0.5))
+            neg_ymin = max(0, int(neg_y_mid - neg_patch_size * 0.5))
             neg_xmax = xmin + patch_size
             neg_ymax = ymin + patch_size
 
-        neg_peer = cur_img.crop((neg_xmin, neg_ymin, neg_xmax, neg_ymax)).copy()
+        neg_peer = cur_img.crop((neg_xmin, neg_ymin, neg_xmax, neg_ymax))
 
         if self._subset == 'train':
             if np.random.uniform(-1, 1) > 0:

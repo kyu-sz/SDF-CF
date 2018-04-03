@@ -79,7 +79,7 @@ def main():
 
     smoothness_criterion = MaskedSmoothnessLoss().cuda()
     bbox_criterion = nn.MSELoss().cuda()
-    cls_criterion = nn.MSELoss().cuda()
+    cls_criterion = nn.CrossEntropyLoss().cuda()
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
@@ -105,10 +105,9 @@ def main():
                                      std=INPUT_STD)
     train_sampler = None
     img_transform = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            normalize,
-        ])
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        normalize])
     smoothness_train_loader = torch.utils.data.DataLoader(
         ImageNetVideoDataset('../datasets/ImageNetVideo/ILSVRC', 'train', img_transform),
         batch_size=args.batch_size, shuffle=(train_sampler is None),
@@ -131,7 +130,7 @@ def main():
         # train smoothness and classification in one epoch
         train_smoothness(smoothness_train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch,
                          logger, vis)
-        train_classfication(cls_train_loader, model, cls_criterion, optimizer, epoch,
+        train_classfication(cls_train_loader, model, cls_criterion, bbox_criterion, optimizer, epoch,
                             logger, vis)
 
         # evaluate smoothness on validation set
@@ -163,17 +162,17 @@ def train_classfication(train_loader, model, cls_criterion, bbox_criterion, opti
 
     end = time.time()
 
-    for i, (image, annotation, bbox) in enumerate(train_loader):
+    for i, (image, cid, bbox) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
         image_var = torch.autograd.Variable(image, requires_grad=True)
 
         # compute output
-        output = model.forward(image_var, ['prob', 'bbox_reg'])
+        output = model.forward(image_var, ['fc8', 'bbox_reg'])
 
         # Compute losses.
-        cls_loss = cls_criterion(output['prob'], annotation['class'])
+        cls_loss = cls_criterion(output['fc8'], cid)
         bbox_loss = bbox_criterion(output['bbox_reg'], bbox)
         total_loss = cls_loss + bbox_loss
 

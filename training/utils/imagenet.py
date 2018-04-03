@@ -2,18 +2,25 @@ import os
 import subprocess
 
 import numpy as np
+import torch
 import torch.utils.data as data
+import torchvision.transforms.functional as F
 
 from .img_loader import default_loader
 from .utils import read_annotation
 
 
-def _check_or_extract(dir, pack_suffix, output_suffix=''):
+def _check_or_extract(dir, pack_suffix, output_suffix='', async=True):
     if not os.path.exists(dir):
         if os.path.exists(dir + pack_suffix):
             os.makedirs(dir, exist_ok=True)
-            subprocess.Popen(['tar', '-xf', dir + pack_suffix, '-C', os.path.join(dir, output_suffix)])
-            print('Extracting', dir + pack_suffix, 'to', os.path.join(dir, output_suffix))
+            args = ['tar', '-xf', dir + pack_suffix, '-C', os.path.join(dir, output_suffix)]
+            if async:
+                subprocess.Popen(args)
+                print('Extracting', dir + pack_suffix, 'to', os.path.join(dir, output_suffix))
+            else:
+                subprocess.call(args)
+                print('Extracted', dir + pack_suffix, 'to', os.path.join(dir, output_suffix))
         else:
             print('Warning: cannot find', dir + pack_suffix)
 
@@ -84,8 +91,34 @@ class ImageNetDataset(data.Dataset):
 
         annotation_fn = img_fn[:-4] + '.'
         annotation = read_annotation(os.path.join(self.annotation_dir(wnid), annotation_fn))
+        if annotation is None:
+            return self[(index + 1) % len(self)]
 
-        return img, annotation
+        # Crop the square patch of the object.
+        scale = np.random.uniform(0.5, 1.1)
+        x_mid = (annotation['xmin'] + annotation['xmax']) * 0.5
+        y_mid = (annotation['ymin'] + annotation['ymax']) * 0.5
+        patch_size = min(max(annotation['xmax'] - annotation['xmin'],
+                             annotation['ymax'] - annotation['ymin']) * scale,
+                         min(annotation['width'], annotation['height']))
+        xmin = min(annotation['width'] - patch_size,
+                   max(0, int(x_mid - (patch_size * 0.5 + np.random.uniform(-0.1, 0.1)))))
+        ymin = min(annotation['height'] - patch_size,
+                   max(0, int(y_mid - (patch_size * 0.5 + np.random.uniform(-0.1, 0.1)))))
+        xmax = xmin + patch_size
+        ymax = ymin + patch_size
+        img = img.crop((xmin, ymin, xmax, ymax))
+
+        # Calculate bounding box regression target.
+        bbox_x = (annotation['xmin'] + annotation['xmax'] - xmin - xmax) * 0.5 / patch_size
+        bbox_y = (annotation['ymin'] + annotation['ymax'] - ymin - ymax) * 0.5 / patch_size
+        bbox_width = (annotation['xmax'] - annotation['xmin']) / patch_size
+        bbox_height = (annotation['ymax'] - annotation['ymin']) / patch_size
+
+        if np.random.uniform(-1, 1) > 0:
+            img = F.hflip(img)
+
+        return img, cid, torch.FloatTensor([bbox_x, bbox_y, bbox_width, bbox_height])
 
     def __len__(self):
         return self._idx_end[-1]
