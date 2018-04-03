@@ -1,6 +1,5 @@
 from PIL import Image
 
-import torchvision.transforms.functional as TF
 
 def pil_loader(path):
     # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)

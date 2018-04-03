@@ -4,6 +4,8 @@ import numpy as np
 import torch
 import torch.utils.data as data
 from utils.img_loader import default_loader
+import torchvision.transforms.functional as TF
+
 
 def _get_element(xml_block, name):
     """
@@ -145,10 +147,10 @@ class ImageNetVideoDataset(data.Dataset):
                    self._transform(neg_peer)
         else:
             # noinspection PyArgumentList
-            return cur_target,\
-                   pos_peer,\
-                   neg_peer,\
-                   torch.FloatTensor([bbox_x, bbox_y, bbox_width, bbox_height]),\
+            return cur_target, \
+                   pos_peer, \
+                   neg_peer, \
+                   torch.FloatTensor([bbox_x, bbox_y, bbox_width, bbox_height]), \
                    torch.FloatTensor([pos_bbox_x, pos_bbox_y, pos_bbox_width, pos_bbox_height])
 
     def __len__(self):
