@@ -79,7 +79,7 @@ def main():
 
     smoothness_criterion = MaskedSmoothnessLoss().cuda()
     bbox_criterion = nn.MSELoss().cuda()
-    classification_criterion = nn.MSELoss().cuda()
+    cls_criterion = nn.MSELoss().cuda()
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
@@ -117,7 +117,7 @@ def main():
         ImageNetVideoDataset('../datasets/ImageNetVideo/ILSVRC', 'val', img_transform),
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
-    classification_train_loader = torch.utils.data.DataLoader(
+    cls_train_loader = torch.utils.data.DataLoader(
         ImageNetDataset('../datasets/ImageNet', img_transform),
         batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)
@@ -131,7 +131,7 @@ def main():
         # train smoothness and classification in one epoch
         train_smoothness(smoothness_train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch,
                          logger, vis)
-        train_classfication(classification_train_loader, model, classification_criterion, optimizer, epoch,
+        train_classfication(cls_train_loader, model, cls_criterion, optimizer, epoch,
                             logger, vis)
 
         # evaluate smoothness on validation set
@@ -152,8 +152,55 @@ def to_np(x):
     return x.data.cpu().numpy()
 
 
-def train_classfication(train_loader, model, criterion, optimizer, epoch, logger, vis):
-    pass
+def train_classfication(train_loader, model, cls_criterion, bbox_criterion, optimizer, epoch, logger, vis):
+    batch_time = AverageMeter()
+    data_time = AverageMeter()
+    cls_losses = AverageMeter()
+    bbox_losses = AverageMeter()
+
+    # switch to train mode
+    model.train()
+
+    end = time.time()
+
+    for i, (image, annotation, bbox) in enumerate(train_loader):
+        # measure data loading time
+        data_time.update(time.time() - end)
+
+        image_var = torch.autograd.Variable(image, requires_grad=True)
+
+        # compute output
+        output = model.forward(image_var, ['prob', 'bbox_reg'])
+
+        # Compute losses.
+        cls_loss = cls_criterion(output['prob'], annotation['class'])
+        bbox_loss = bbox_criterion(output['bbox_reg'], bbox)
+        total_loss = cls_loss + bbox_loss
+
+        # measure metrics and record loss
+        cls_losses.update(cls_loss.data[0], image_var.size(0))
+        bbox_losses.update(bbox_loss.data[0], image_var.size(0))
+
+        # compute gradient and do SGD step
+        optimizer.zero_grad()
+        total_loss.backward()
+        optimizer.step()
+
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        end = time.time()
+
+        if i % args.print_freq == 0:
+            print('Epoch: [{0}][{1}/{2}]\t'
+                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                  'Classification loss {cls_loss.val:.4f} ({cls_loss.avg:.4f})\t'
+                  'Bounding box regression loss {bbox_loss.val:.4f} ({bbox_loss.avg:.4f})'.format(
+                epoch, i, len(train_loader), batch_time=batch_time,
+                data_time=data_time, cls_loss=cls_loss, bbox_loss=bbox_loss))
+
+        logger.scalar_summary('training/classification_losses', cls_loss.data[0], epoch * len(train_loader) + i)
+        logger.scalar_summary('training/bbox_losses', bbox_loss.data[0], epoch * len(train_loader) + i)
 
 
 def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch, logger, vis):
@@ -167,8 +214,6 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
 
     end = time.time()
     for i, (target, pos_peer, neg_peer, bbox, pos_bbox) in enumerate(train_loader):
-        # print('Epoch {} iter {}...'.format(epoch, i))
-
         # measure data loading time
         data_time.update(time.time() - end)
 
@@ -177,7 +222,7 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
         neg_peer_var = torch.autograd.Variable(neg_peer, requires_grad=True)
 
         # compute output
-        target_output = model.forward(target_var, ['relu5', 'prob', 'bbox_reg'])
+        target_output = model.forward(target_var, ['relu5', 'bbox_reg'])
         pos_output = model.forward(pos_peer_var, ['relu5'])['relu5']
         neg_output = model.forward(neg_peer_var, ['relu5'])['relu5']
 
@@ -204,13 +249,12 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                   'Smoothness loss {smoothness_loss.val:.4f} ({smoothness_loss.avg:.4f})\t'
-                  'Smoothness loss {smoothness_loss.val:.4f} ({smoothness_loss.avg:.4f})'.format(
+                  'Bounding box regression loss {bbox_loss.val:.4f} ({bbox_loss.avg:.4f})'.format(
                 epoch, i, len(train_loader), batch_time=batch_time,
-                data_time=data_time, smoothness_loss=smoothness_losses))
+                data_time=data_time, smoothness_loss=smoothness_losses, bbox_loss=bbox_loss))
 
         logger.scalar_summary('training/smoothness_losses', smoothness_loss.data[0], epoch * len(train_loader) + i)
-
-        # print('Epoch {} iter {} finished!'.format(epoch, i))
+        logger.scalar_summary('training/bbox_losses', bbox_loss.data[0], epoch * len(train_loader) + i)
 
 
 def validate(val_loader, model, smoothness_criterion, bbox_criterion, epoch, logger):
