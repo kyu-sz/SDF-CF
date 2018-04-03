@@ -1,3 +1,6 @@
+import xml.etree.ElementTree
+
+
 def bb_intersection_over_union(boxA, boxB):
     # determine the (x, y)-coordinates of the intersection rectangle
     xA = max(boxA[0], boxB[0])
@@ -20,3 +23,35 @@ def bb_intersection_over_union(boxA, boxB):
 
     # return the intersection over union value
     return iou
+
+
+def _get_element(xml_block, name):
+    """
+    Get a unique element from a XML block by name.
+    Args:
+        xml_block (xml.etree.ElementTree.Element): XML block.
+        name (str): element name.
+    Returns:
+        xml.etree.ElementTree.Element: the corresponding element block.
+    """
+    return xml_block.iter(name).__next__()
+
+
+def read_annotation(annotation_fn):
+    e = xml.etree.ElementTree.parse(annotation_fn).getroot()
+
+    try:
+        size_block = _get_element(e, 'size')
+        width = int(_get_element(size_block, 'width').text)
+        height = int(_get_element(size_block, 'height').text)
+
+        obj_block = _get_element(e, 'object')
+        bndbox_block = _get_element(obj_block, 'bndbox')
+        xmax = int(_get_element(bndbox_block, 'xmax').text)
+        xmin = int(_get_element(bndbox_block, 'xmin').text)
+        ymax = int(_get_element(bndbox_block, 'ymax').text)
+        ymin = int(_get_element(bndbox_block, 'ymin').text)
+
+        return {'width': width, 'height': height, 'xmax': xmax, 'xmin': xmin, 'ymax': ymax, 'ymin': ymin}
+    except StopIteration:
+        return None
