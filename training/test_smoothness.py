@@ -17,7 +17,9 @@ if __name__ == '__main__':
 
     data_dir = '../datasets/vot2017'
     vgg16_total_dist = 0
-    for seq in vot.VOTLoader(data_dir):
+    vot = vot.VOTDataset(data_dir)
+    for seq_idx in range(len(vot)):
+        seq = vot[seq_idx]
         print('Processing {}'.format(seq['name']))
         vgg16_last_feat = None
         vgg16_dist = []

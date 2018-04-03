@@ -4,7 +4,8 @@ import numpy as np
 
 import torch.utils.data as data
 
-class VOTLoader(data.Dataset):
+
+class VOTDataset(data.Dataset):
     def __init__(self, data_dir):
         self._data_dir = data_dir
         list_fn = data_dir + '/list.txt'

@@ -1,40 +1,9 @@
-import xml.etree.ElementTree
-
 import numpy as np
 import torch
 import torch.utils.data as data
 from utils.img_loader import default_loader
-
-def _get_element(xml_block, name):
-    """
-    Get a unique element from a XML block by name.
-    Args:
-        xml_block (xml.etree.ElementTree.Element): XML block.
-        name (str): element name.
-    Returns:
-        xml.etree.ElementTree.Element: the corresponding element block.
-    """
-    return xml_block.iter(name).__next__()
-
-
-def _read_annotation(annotation_fn):
-    e = xml.etree.ElementTree.parse(annotation_fn).getroot()
-
-    try:
-        size_block = _get_element(e, 'size')
-        width = int(_get_element(size_block, 'width').text)
-        height = int(_get_element(size_block, 'height').text)
-
-        obj_block = _get_element(e, 'object')
-        bndbox_block = _get_element(obj_block, 'bndbox')
-        xmax = int(_get_element(bndbox_block, 'xmax').text)
-        xmin = int(_get_element(bndbox_block, 'xmin').text)
-        ymax = int(_get_element(bndbox_block, 'ymax').text)
-        ymin = int(_get_element(bndbox_block, 'ymin').text)
-
-        return {'width': width, 'height': height, 'xmax': xmax, 'xmin': xmin, 'ymax': ymax, 'ymin': ymin}
-    except StopIteration:
-        return None
+import torchvision.transforms.functional as F
+from utils.utils import read_annotation
 
 
 class ImageNetVideoDataset(data.Dataset):
@@ -58,11 +27,11 @@ class ImageNetVideoDataset(data.Dataset):
 
         # Read annotation of the target in the current frame and the previous frame.
         cur_annotation_fn = self._data_dir + '/Annotations/VID/' + self._subset + '/' + cur_frame + '.xml'
-        cur_annotation = _read_annotation(cur_annotation_fn)
+        cur_annotation = read_annotation(cur_annotation_fn)
         if cur_annotation is None:
             return self.__getitem__((index + 1) % len(self))
         prev_annotation_fn = self._data_dir + '/Annotations/VID/' + self._subset + '/' + prev_frame + '.xml'
-        prev_annotation = _read_annotation(prev_annotation_fn)
+        prev_annotation = read_annotation(prev_annotation_fn)
         if prev_annotation is None:
             return self.__getitem__((index + 1) % len(self))
 
@@ -135,9 +104,9 @@ class ImageNetVideoDataset(data.Dataset):
 
         if self._subset == 'train':
             if np.random.uniform(-1, 1) > 0:
-                cur_target = TF.hflip(cur_target)
-                pos_peer = TF.hflip(pos_peer)
-                neg_peer = TF.hflip(neg_peer)
+                cur_target = F.hflip(cur_target)
+                pos_peer = F.hflip(pos_peer)
+                neg_peer = F.hflip(neg_peer)
 
         if self._transform is not None:
             return self._transform(cur_target), \
@@ -145,10 +114,10 @@ class ImageNetVideoDataset(data.Dataset):
                    self._transform(neg_peer)
         else:
             # noinspection PyArgumentList
-            return cur_target,\
-                   pos_peer,\
-                   neg_peer,\
-                   torch.FloatTensor([bbox_x, bbox_y, bbox_width, bbox_height]),\
+            return cur_target, \
+                   pos_peer, \
+                   neg_peer, \
+                   torch.FloatTensor([bbox_x, bbox_y, bbox_width, bbox_height]), \
                    torch.FloatTensor([pos_bbox_x, pos_bbox_y, pos_bbox_width, pos_bbox_height])
 
     def __len__(self):
