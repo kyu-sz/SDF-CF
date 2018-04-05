@@ -121,7 +121,7 @@ def main():
         batch_size=args.batch_size, shuffle=(train_sampler is None),
         num_workers=args.workers, pin_memory=True, sampler=train_sampler)
 
-    logger = Logger('tflogs', name='smooth')
+    logger = Logger('tflogs', name='sdf-cf')
     vis = visdom.Visdom(port=7236)
 
     for epoch in range(args.start_epoch, args.epochs):
@@ -169,10 +169,10 @@ def train_classfication(train_loader, model, cls_criterion, bbox_criterion, opti
         image_var = torch.autograd.Variable(image, requires_grad=True)
 
         # compute output
-        output = model.forward(image_var, ['fc8', 'bbox_reg'])
+        output = model.forward(image_var, ['fc8ext', 'bbox_reg'])
 
         # Compute losses.
-        cls_loss = cls_criterion(output['fc8'], cid)
+        cls_loss = cls_criterion(output['fc8ext'], cid)
         bbox_loss = bbox_criterion(output['bbox_reg'], bbox)
         total_loss = cls_loss + bbox_loss
 

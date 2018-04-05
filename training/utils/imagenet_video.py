@@ -111,7 +111,9 @@ class ImageNetVideoDataset(data.Dataset):
         if self._transform is not None:
             return self._transform(cur_target), \
                    self._transform(pos_peer), \
-                   self._transform(neg_peer)
+                   self._transform(neg_peer), \
+                   torch.FloatTensor([bbox_x, bbox_y, bbox_width, bbox_height]), \
+                   torch.FloatTensor([pos_bbox_x, pos_bbox_y, pos_bbox_width, pos_bbox_height])
         else:
             # noinspection PyArgumentList
             return cur_target, \
