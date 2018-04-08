@@ -15,17 +15,18 @@ class VGG_M_2048(nn.Module):
             ('conv1', nn.Conv2d(3, 96, kernel_size=7, stride=2)),
             ('relu1', nn.ReLU()),
             ('norm1', nn.CrossMapLRN2d(5, alpha=1e-4, beta=0.75, k=2)),
-            ('pool1', nn.MaxPool2d(kernel_size=3, stride=2, padding=1)),
+            ('pool1', nn.MaxPool2d(kernel_size=3, stride=2, padding=0)),
             ('conv2', nn.Conv2d(96, 256, kernel_size=5, stride=2, padding=1)),
             ('relu2', nn.ReLU()),
             ('norm2', nn.CrossMapLRN2d(5, alpha=1e-4, beta=0.75, k=2)),
-            ('pool2', nn.MaxPool2d(kernel_size=3, stride=2, padding=1)),
+            ('pool2', nn.MaxPool2d(kernel_size=3, stride=2, padding=0)),
             ('conv3', nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=1)),
             ('relu3', nn.ReLU()),
             ('conv4', nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)),
             ('relu4', nn.ReLU()),
             ('conv5', nn.Conv2d(512, 512, kernel_size=3, stride=1, padding=1)),
             ('relu5', nn.ReLU()),
+            ('pool5', nn.MaxPool2d(kernel_size=3, stride=2, padding=1)),
             ('fc6', nn.Conv2d(512, 4096, kernel_size=6, stride=1, padding=0)),
             ('relu6', nn.ReLU()),
             ('fc7', nn.Conv2d(4096, 2048, kernel_size=1, stride=1, padding=0)),
@@ -35,8 +36,9 @@ class VGG_M_2048(nn.Module):
             ('fc8ext', nn.Conv2d(2048, 3624, kernel_size=1, stride=1, padding=0)),
             ('prob', nn.Softmax(dim=1))]))
 
-        self.bbox_reg = nn.Sequential(OrderedDict([
-            ('bbox_reg', nn.Conv2d(2048, 4, kernel_size=1, stride=1, padding=0))]))
+        self.bbox_reg = nn.Conv2d(2048, 4, kernel_size=1, stride=1, padding=0)
+        nn.init.constant(self.bbox_reg.weight, 0)
+        nn.init.constant(self.bbox_reg.bias, 0)
 
         if model_path is not None:
             if model_path.endswith('mat'):

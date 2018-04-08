@@ -146,6 +146,10 @@ def main():
                 'optimizer': optimizer.state_dict(),
             }, is_best)
 
+            if is_best:
+                # TODO: Test the new model with ECO in VOT.
+                pass
+
 
 def to_np(x):
     return x.data.cpu().numpy()
@@ -206,6 +210,8 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
     batch_time = AverageMeter()
     data_time = AverageMeter()
     smoothness_losses = AverageMeter()
+    pos_losses = AverageMeter()
+    neg_losses = AverageMeter()
     bbox_losses = AverageMeter()
 
     # switch to train mode
@@ -216,9 +222,10 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
         # measure data loading time
         data_time.update(time.time() - end)
 
-        target_var = torch.autograd.Variable(target, requires_grad=True)
-        pos_peer_var = torch.autograd.Variable(pos_peer, requires_grad=True)
-        neg_peer_var = torch.autograd.Variable(neg_peer, requires_grad=True)
+        target_var = torch.autograd.Variable(target, requires_grad=True).cuda(async=True)
+        pos_peer_var = torch.autograd.Variable(pos_peer, requires_grad=True).cuda(async=True)
+        neg_peer_var = torch.autograd.Variable(neg_peer, requires_grad=True).cuda(async=True)
+        bbox_var = torch.autograd.Variable(bbox, requires_grad=False).cuda(async=True)
 
         # compute output
         target_output = model.forward(target_var, ['relu5', 'bbox_reg'])
@@ -226,12 +233,15 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
         neg_output = model.forward(neg_peer_var, ['relu5'])['relu5']
 
         # Compute losses.
-        smoothness_loss = smoothness_criterion(target_output['relu5'], pos_output, neg_output, bbox, pos_bbox)
-        bbox_loss = bbox_criterion(target_output['bbox_reg'], bbox)
+        pos_loss, neg_loss = smoothness_criterion(target_output['relu5'], pos_output, neg_output, bbox, pos_bbox)
+        smoothness_loss = pos_loss + neg_loss
+        bbox_loss = bbox_criterion(target_output['bbox_reg'], bbox_var)
         total_loss = smoothness_loss + bbox_loss
 
         # measure metrics and record loss
         smoothness_losses.update(smoothness_loss.data[0], target_var.size(0))
+        pos_losses.update(pos_loss.data[0], target_var.size(0))
+        neg_losses.update(neg_loss.data[0], target_var.size(0))
         bbox_losses.update(bbox_loss.data[0], target_var.size(0))
 
         # compute gradient and do SGD step
@@ -247,47 +257,58 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
             print('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                  'Smoothness loss {smoothness_loss.val:.4f} ({smoothness_loss.avg:.4f})\t'
+                  'Positive smoothness loss {pos_loss.val:.4f} ({pos_loss.avg:.4f})\t'
+                  'Negative smoothness loss {neg_loss.val:.4f} ({neg_loss.avg:.4f})\t'
+                  'Overall smoothness loss {smoothness_loss.val:.4f} ({smoothness_loss.avg:.4f})\t'
                   'Bounding box regression loss {bbox_loss.val:.4f} ({bbox_loss.avg:.4f})'.format(
-                epoch, i, len(train_loader), batch_time=batch_time,
-                data_time=data_time, smoothness_loss=smoothness_losses, bbox_loss=bbox_loss))
+                epoch, i, len(train_loader), batch_time=batch_time, data_time=data_time,
+                pos_loss=pos_losses, neg_loss=neg_losses, smoothness_loss=smoothness_losses, bbox_loss=bbox_losses))
 
-        logger.scalar_summary('training/smoothness_losses', smoothness_loss.data[0], epoch * len(train_loader) + i)
+        logger.scalar_summary('training/smoothness_pos_losses', pos_loss.data[0], epoch * len(train_loader) + i)
+        logger.scalar_summary('training/smoothness_neg_losses', neg_loss.data[0], epoch * len(train_loader) + i)
         logger.scalar_summary('training/bbox_losses', bbox_loss.data[0], epoch * len(train_loader) + i)
 
 
 def validate(val_loader, model, smoothness_criterion, bbox_criterion, epoch, logger):
     batch_time = AverageMeter()
-    smoothness_losses = AverageMeter()
+    pos_losses = AverageMeter()
+    neg_losses = AverageMeter()
+    bbox_losses = AverageMeter()
 
     # switch to evaluate mode
     model.eval()
 
     end = time.time()
-    for i, (target, pos_peer, neg_peer, bbox) in enumerate(val_loader):
+    for i, (target, pos_peer, neg_peer, bbox, pos_bbox) in enumerate(val_loader):
         target_var = torch.autograd.Variable(target, requires_grad=True).cuda(async=True)
         pos_peer_var = torch.autograd.Variable(pos_peer, requires_grad=True).cuda(async=True)
         neg_peer_var = torch.autograd.Variable(neg_peer, requires_grad=True).cuda(async=True)
+        bbox_var = torch.autograd.Variable(bbox, requires_grad=False).cuda(async=True)
 
-        target_output = model.forward(target_var, ['relu5', 'prob', 'bbox_reg'])
+        target_output = model.forward(target_var, ['relu5', 'bbox_reg'])
         pos_output = model.forward(pos_peer_var, ['relu5'])['relu5']
         neg_output = model.forward(neg_peer_var, ['relu5'])['relu5']
 
-        smoothness_loss = smoothness_criterion(target_output['relu5'], pos_output, neg_output)
+        pos_loss, neg_loss = smoothness_criterion(target_output['relu5'], pos_output, neg_output, bbox, pos_bbox)
+        bbox_loss = bbox_criterion(target_output['bbox_reg'], bbox_var)
 
         # measure metrics and record loss
-        smoothness_losses.update(smoothness_loss.data[0], target_var.size(0))
+        pos_losses.update(pos_loss.data[0], target_var.size(0))
+        neg_losses.update(neg_loss.data[0], target_var.size(0))
+        bbox_losses.update(bbox_loss.data[0], target_var.size(0))
 
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
 
-    logger.scalar_summary('validation/smoothness_losses', smoothness_losses.avg, epoch)
+    logger.scalar_summary('validation/smoothness_pos_losses', pos_losses.avg, epoch * len(val_loader) + i)
+    logger.scalar_summary('validation/smoothness_neg_losses', neg_losses.avg, epoch * len(val_loader) + i)
+    logger.scalar_summary('validation/bbox_losses', bbox_losses.avg, epoch * len(val_loader) + i)
 
     print(' * Smoothness losses {smoothness_losses.avg:.3f}'
-          .format(smoothness_losses=smoothness_losses))
+          .format(smoothness_losses=pos_losses))
 
-    return smoothness_losses.avg
+    return pos_losses.avg + neg_losses.avg + bbox_losses.avg
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):

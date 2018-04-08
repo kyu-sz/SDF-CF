@@ -112,8 +112,8 @@ class ImageNetDataset(data.Dataset):
         # Calculate bounding box regression target.
         bbox_x = (annotation['xmin'] + annotation['xmax'] - xmin - xmax) * 0.5 / patch_size
         bbox_y = (annotation['ymin'] + annotation['ymax'] - ymin - ymax) * 0.5 / patch_size
-        bbox_width = (annotation['xmax'] - annotation['xmin']) / patch_size
-        bbox_height = (annotation['ymax'] - annotation['ymin']) / patch_size
+        bbox_width = (annotation['xmax'] - annotation['xmin']) / patch_size - 1
+        bbox_height = (annotation['ymax'] - annotation['ymin']) / patch_size - 1
 
         if np.random.uniform(-1, 1) > 0:
             img = F.hflip(img)

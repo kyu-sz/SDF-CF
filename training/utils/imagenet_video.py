@@ -51,8 +51,10 @@ class ImageNetVideoDataset(data.Dataset):
         # Calculate bounding box regression target.
         bbox_x = (cur_annotation['xmin'] + cur_annotation['xmax'] - xmin - xmax) * 0.5 / patch_size
         bbox_y = (cur_annotation['ymin'] + cur_annotation['ymax'] - ymin - ymax) * 0.5 / patch_size
-        bbox_width = (cur_annotation['xmax'] - cur_annotation['xmin']) / patch_size
-        bbox_height = (cur_annotation['ymax'] - cur_annotation['ymin']) / patch_size
+        bbox_width = (cur_annotation['xmax'] - cur_annotation['xmin']) / patch_size - 1
+        bbox_height = (cur_annotation['ymax'] - cur_annotation['ymin']) / patch_size - 1
+
+        # TODO: Make sure bbox is not zero-sized.
 
         # Use the target from the previous frame as the positive peer.
         prev_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + prev_frame + '.JPEG')
@@ -71,8 +73,8 @@ class ImageNetVideoDataset(data.Dataset):
                                   pos_ymax))
         pos_bbox_x = (prev_annotation['xmin'] + prev_annotation['xmax'] - pos_xmin - pos_xmax) * 0.5 / pos_patch_size
         pos_bbox_y = (prev_annotation['ymin'] + prev_annotation['ymax'] - pos_ymin - pos_ymax) * 0.5 / pos_patch_size
-        pos_bbox_width = (prev_annotation['xmax'] - prev_annotation['xmin']) / pos_patch_size
-        pos_bbox_height = (prev_annotation['ymax'] - prev_annotation['ymin']) / pos_patch_size
+        pos_bbox_width = (prev_annotation['xmax'] - prev_annotation['xmin']) / pos_patch_size - 1
+        pos_bbox_height = (prev_annotation['ymax'] - prev_annotation['ymin']) / pos_patch_size - 1
 
         # Pick negative peer.
         if self._subset == 'train':
