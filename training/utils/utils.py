@@ -25,7 +25,7 @@ def bb_intersection_over_union(boxA, boxB):
     return iou
 
 
-def _get_element(xml_block, name):
+def _get_unique_element(xml_block, name):
     """
     Get a unique element from a XML block by name.
     Args:
@@ -40,18 +40,20 @@ def _get_element(xml_block, name):
 def read_annotation(annotation_fn):
     e = xml.etree.ElementTree.parse(annotation_fn).getroot()
 
-    try:
-        size_block = _get_element(e, 'size')
-        width = int(_get_element(size_block, 'width').text)
-        height = int(_get_element(size_block, 'height').text)
+    size_block = _get_unique_element(e, 'size')
+    width = int(_get_unique_element(size_block, 'width').text)
+    height = int(_get_unique_element(size_block, 'height').text)
+    folder = _get_unique_element(e, 'folder').text
+    filename = _get_unique_element(e, 'filename').text
 
-        obj_block = _get_element(e, 'object')
-        bndbox_block = _get_element(obj_block, 'bndbox')
-        xmax = int(_get_element(bndbox_block, 'xmax').text)
-        xmin = int(_get_element(bndbox_block, 'xmin').text)
-        ymax = int(_get_element(bndbox_block, 'ymax').text)
-        ymin = int(_get_element(bndbox_block, 'ymin').text)
+    objects = []
+    for obj_block in e.iter('object'):
+        name = _get_unique_element(obj_block, 'name').text
+        bndbox_block = _get_unique_element(obj_block, 'bndbox')
+        xmax = int(_get_unique_element(bndbox_block, 'xmax').text)
+        xmin = int(_get_unique_element(bndbox_block, 'xmin').text)
+        ymax = int(_get_unique_element(bndbox_block, 'ymax').text)
+        ymin = int(_get_unique_element(bndbox_block, 'ymin').text)
+        objects.append({'name': name, 'xmax': xmax, 'xmin': xmin, 'ymax': ymax, 'ymin': ymin})
 
-        return {'width': width, 'height': height, 'xmax': xmax, 'xmin': xmin, 'ymax': ymax, 'ymin': ymin}
-    except StopIteration:
-        return None
+    return {'width': width, 'height': height, 'folder': folder, 'filename': filename, 'objects': objects}

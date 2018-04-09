@@ -32,7 +32,7 @@ class VGG_M_2048(nn.Module):
             ('fc7', nn.Conv2d(4096, 2048, kernel_size=1, stride=1, padding=0)),
             ('relu7', nn.ReLU())]))
 
-        self.fc8 = nn.Sequential(OrderedDict([
+        self.classifier = nn.Sequential(OrderedDict([
             ('fc8ext', nn.Conv2d(2048, 3624, kernel_size=1, stride=1, padding=0)),
             ('prob', nn.Softmax(dim=1))]))
 

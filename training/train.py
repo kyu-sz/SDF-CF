@@ -3,6 +3,7 @@ import os
 import random
 import shutil
 import time
+import os.path as osp
 
 import numpy as np
 import torch
@@ -23,8 +24,10 @@ from utils.masked_smoothness_loss import MaskedSmoothnessLoss
 from utils.eco_eval import eco_eval
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
-parser.add_argument('--dataset-dir', type=str, metavar='N',
-                    help='directory of the dataset')
+parser.add_argument('--imagenet-dir', type=str, metavar='N',
+                    help='directory of the ImageNet dataset')
+parser.add_argument('--imagenet-video-dir', type=str, metavar='N',
+                    help='directory of the ImageNet Video dataset')
 parser.add_argument('-j', '--workers', default=4, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=2, type=int, metavar='N',
@@ -73,6 +76,27 @@ def main():
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
+    # load data
+    normalize = transforms.Normalize(mean=INPUT_MEAN,
+                                     std=INPUT_STD)
+    train_sampler = None
+    img_transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        normalize])
+    smoothness_train_loader = torch.utils.data.DataLoader(
+        ImageNetVideoDataset(osp.join(args.imagenet_video_dir, 'ILSVRC'), 'train', img_transform),
+        batch_size=args.batch_size, shuffle=(train_sampler is None),
+        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
+    smoothness_val_loader = torch.utils.data.DataLoader(
+        ImageNetVideoDataset(osp.join(args.imagenet_video_dir, 'ILSVRC'), 'val', img_transform),
+        batch_size=args.batch_size, shuffle=False,
+        num_workers=args.workers, pin_memory=True)
+    cls_train_loader = torch.utils.data.DataLoader(
+        ImageNetDataset(args.imagenet_dir, img_transform),
+        batch_size=args.batch_size, shuffle=(train_sampler is None),
+        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
+
     # create model
     model = VGG_M_2048(model_path='models/imagenet_vgg_m_2048.mat')
     print(model)
@@ -103,38 +127,18 @@ def main():
 
     cudnn.benchmark = True
 
-    # Data loading codes
-    normalize = transforms.Normalize(mean=INPUT_MEAN,
-                                     std=INPUT_STD)
-    train_sampler = None
-    img_transform = transforms.Compose([
-        transforms.Resize((224, 224)),
-        transforms.ToTensor(),
-        normalize])
-    smoothness_train_loader = torch.utils.data.DataLoader(
-        ImageNetVideoDataset('../datasets/ImageNetVideo/ILSVRC', 'train', img_transform),
-        batch_size=args.batch_size, shuffle=(train_sampler is None),
-        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
-    smoothness_val_loader = torch.utils.data.DataLoader(
-        ImageNetVideoDataset('../datasets/ImageNetVideo/ILSVRC', 'val', img_transform),
-        batch_size=args.batch_size, shuffle=False,
-        num_workers=args.workers, pin_memory=True)
-    cls_train_loader = torch.utils.data.DataLoader(
-        ImageNetDataset('../datasets/ImageNet', img_transform),
-        batch_size=args.batch_size, shuffle=(train_sampler is None),
-        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
-
+    # initialize loggers.
     logger = Logger('tflogs', name='sdf-cf')
     vis = visdom.Visdom(port=7236)
 
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch)
 
-        # train smoothness and classification in one epoch
-        train_smoothness(smoothness_train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch,
-                         logger, vis)
+        # train smoothness and classification iteratively in each epoch.
         train_classfication(cls_train_loader, model, cls_criterion, bbox_criterion, optimizer, epoch,
                             logger, vis)
+        train_smoothness(smoothness_train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch,
+                         logger, vis)
 
         # evaluate smoothness on validation set
         if epoch % args.eval_freq == 0 or epoch == args.epochs - 1:
@@ -173,13 +177,15 @@ def train_classfication(train_loader, model, cls_criterion, bbox_criterion, opti
         data_time.update(time.time() - end)
 
         image_var = torch.autograd.Variable(image, requires_grad=True)
+        cid_var = torch.autograd.Variable(cid, requires_grad=False).cuda(async=True)
+        bbox_var = torch.autograd.Variable(bbox, requires_grad=False).cuda(async=True)
 
         # compute output
         output = model.forward(image_var, ['fc8ext', 'bbox_reg'])
 
         # Compute losses.
-        cls_loss = cls_criterion(output['fc8ext'], cid)
-        bbox_loss = bbox_criterion(output['bbox_reg'], bbox)
+        cls_loss = cls_criterion(output['fc8ext'], cid_var)
+        bbox_loss = bbox_criterion(output['bbox_reg'], bbox_var)
         total_loss = cls_loss + bbox_loss
 
         # measure metrics and record loss
@@ -202,7 +208,7 @@ def train_classfication(train_loader, model, cls_criterion, bbox_criterion, opti
                   'Classification loss {cls_loss.val:.4f} ({cls_loss.avg:.4f})\t'
                   'Bounding box regression loss {bbox_loss.val:.4f} ({bbox_loss.avg:.4f})'.format(
                 epoch, i, len(train_loader), batch_time=batch_time,
-                data_time=data_time, cls_loss=cls_loss, bbox_loss=bbox_loss))
+                data_time=data_time, cls_loss=cls_losses, bbox_loss=bbox_losses))
 
         logger.scalar_summary('training/classification_losses', cls_loss.data[0], epoch * len(train_loader) + i)
         logger.scalar_summary('training/bbox_losses', bbox_loss.data[0], epoch * len(train_loader) + i)
