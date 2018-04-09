@@ -20,6 +20,7 @@ from utils.imagenet_video import ImageNetVideoDataset
 from utils.imagenet import ImageNetDataset
 from utils.logger import Logger
 from utils.masked_smoothness_loss import MaskedSmoothnessLoss
+from utils.eco_eval import eco_eval
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--dataset-dir', type=str, metavar='N',
@@ -40,8 +41,10 @@ parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
                     metavar='W', help='weight decay (default: 1e-4)')
 parser.add_argument('--print-freq', '-p', default=10, type=int,
                     metavar='N', help='print frequency (default: 10)')
+parser.add_argument('--vis-freq', '-v', default=10, type=int,
+                    metavar='N', help='visualization frequency (default: 10)')
 parser.add_argument('--eval-freq', default=10, type=int,
-                    metavar='N', help='print frequency (default: 10)')
+                    metavar='N', help='evaluation frequency (default: 10)')
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
@@ -147,8 +150,7 @@ def main():
             }, is_best)
 
             if is_best:
-                # TODO: Test the new model with ECO in VOT.
-                pass
+                eco_eval(model)
 
 
 def to_np(x):
@@ -218,19 +220,19 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
     model.train()
 
     end = time.time()
-    for i, (target, pos_peer, neg_peer, bbox, pos_bbox) in enumerate(train_loader):
+    for i, (target, pos_sample, neg_sample, bbox, pos_bbox) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
         target_var = torch.autograd.Variable(target, requires_grad=True).cuda(async=True)
-        pos_peer_var = torch.autograd.Variable(pos_peer, requires_grad=True).cuda(async=True)
-        neg_peer_var = torch.autograd.Variable(neg_peer, requires_grad=True).cuda(async=True)
+        pos_var = torch.autograd.Variable(pos_sample, requires_grad=True).cuda(async=True)
+        neg_var = torch.autograd.Variable(neg_sample, requires_grad=True).cuda(async=True)
         bbox_var = torch.autograd.Variable(bbox, requires_grad=False).cuda(async=True)
 
         # compute output
         target_output = model.forward(target_var, ['relu5', 'bbox_reg'])
-        pos_output = model.forward(pos_peer_var, ['relu5'])['relu5']
-        neg_output = model.forward(neg_peer_var, ['relu5'])['relu5']
+        pos_output = model.forward(pos_var, ['relu5'])['relu5']
+        neg_output = model.forward(neg_var, ['relu5'])['relu5']
 
         # Compute losses.
         pos_loss, neg_loss = smoothness_criterion(target_output['relu5'], pos_output, neg_output, bbox, pos_bbox)
@@ -254,18 +256,32 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
         end = time.time()
 
         if i % args.print_freq == 0:
-            print('Epoch: [{0}][{1}/{2}]\t'
+            print('Smoothness epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                  'Positive smoothness loss {pos_loss.val:.4f} ({pos_loss.avg:.4f})\t'
-                  'Negative smoothness loss {neg_loss.val:.4f} ({neg_loss.avg:.4f})\t'
-                  'Overall smoothness loss {smoothness_loss.val:.4f} ({smoothness_loss.avg:.4f})\t'
+                  'Positive loss {pos_loss.val:.4f} ({pos_loss.avg:.4f})\t'
+                  'Negative loss {neg_loss.val:.4f} ({neg_loss.avg:.4f})\t'
+                  'Overall loss {smoothness_loss.val:.4f} ({smoothness_loss.avg:.4f})\t'
                   'Bounding box regression loss {bbox_loss.val:.4f} ({bbox_loss.avg:.4f})'.format(
                 epoch, i, len(train_loader), batch_time=batch_time, data_time=data_time,
                 pos_loss=pos_losses, neg_loss=neg_losses, smoothness_loss=smoothness_losses, bbox_loss=bbox_losses))
 
-        logger.scalar_summary('training/smoothness_pos_losses', pos_loss.data[0], epoch * len(train_loader) + i)
-        logger.scalar_summary('training/smoothness_neg_losses', neg_loss.data[0], epoch * len(train_loader) + i)
+        if i % args.vis_freq == 0:
+            concat_imgs = torch.zeros((target.shape[0], target.shape[1], target.shape[2], target.shape[3] * 3 + 4))
+
+            for c in range(target.shape[1]):
+                concat_imgs[:, c, :, :target.shape[3]] = target[:, c, ...] * INPUT_STD[c] + INPUT_MEAN[c]
+                concat_imgs[:, c, :, target.shape[3] + 2: target.shape[3] * 2 + 2] = \
+                    pos_sample[:, c, ...] * INPUT_STD[c] + INPUT_MEAN[c]
+                concat_imgs[:, c, :, target.shape[3] * 2 + 4:] = neg_sample[:, c, ...] * INPUT_STD[c] + INPUT_MEAN[c]
+
+            sample_list = [concat_imgs[b, ...] for b in range(concat_imgs.shape[0])]
+
+            logger.image_summary('training/samples', sample_list, epoch * len(train_loader) + i)
+
+        logger.scalar_summary('training/smoothness_losses', smoothness_loss.data[0], epoch * len(train_loader) + i)
+        logger.scalar_summary('training/pos_losses', pos_loss.data[0], epoch * len(train_loader) + i)
+        logger.scalar_summary('training/neg_losses', neg_loss.data[0], epoch * len(train_loader) + i)
         logger.scalar_summary('training/bbox_losses', bbox_loss.data[0], epoch * len(train_loader) + i)
 
 
@@ -279,15 +295,15 @@ def validate(val_loader, model, smoothness_criterion, bbox_criterion, epoch, log
     model.eval()
 
     end = time.time()
-    for i, (target, pos_peer, neg_peer, bbox, pos_bbox) in enumerate(val_loader):
+    for i, (target, pos_sample, neg_sample, bbox, pos_bbox) in enumerate(val_loader):
         target_var = torch.autograd.Variable(target, requires_grad=True).cuda(async=True)
-        pos_peer_var = torch.autograd.Variable(pos_peer, requires_grad=True).cuda(async=True)
-        neg_peer_var = torch.autograd.Variable(neg_peer, requires_grad=True).cuda(async=True)
+        pos_var = torch.autograd.Variable(pos_sample, requires_grad=True).cuda(async=True)
+        neg_var = torch.autograd.Variable(neg_sample, requires_grad=True).cuda(async=True)
         bbox_var = torch.autograd.Variable(bbox, requires_grad=False).cuda(async=True)
 
         target_output = model.forward(target_var, ['relu5', 'bbox_reg'])
-        pos_output = model.forward(pos_peer_var, ['relu5'])['relu5']
-        neg_output = model.forward(neg_peer_var, ['relu5'])['relu5']
+        pos_output = model.forward(pos_var, ['relu5'])['relu5']
+        neg_output = model.forward(neg_var, ['relu5'])['relu5']
 
         pos_loss, neg_loss = smoothness_criterion(target_output['relu5'], pos_output, neg_output, bbox, pos_bbox)
         bbox_loss = bbox_criterion(target_output['bbox_reg'], bbox_var)
@@ -306,15 +322,15 @@ def validate(val_loader, model, smoothness_criterion, bbox_criterion, epoch, log
     logger.scalar_summary('validation/bbox_losses', bbox_losses.avg, epoch * len(val_loader) + i)
 
     print(' * Smoothness losses {smoothness_losses.avg:.3f}'
-          .format(smoothness_losses=pos_losses))
+          .format(smoothness_losses=(pos_losses.avg + neg_losses.avg)))
 
     return pos_losses.avg + neg_losses.avg + bbox_losses.avg
 
 
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
-    torch.save(state, filename)
+def save_checkpoint(state, is_best, state_fn='checkpoint.pth.tar', model_fn='model_best.pth.tar'):
+    torch.save(state, state_fn)
     if is_best:
-        shutil.copyfile(filename, 'model_best.pth.tar')
+        shutil.copyfile(state_fn, model_fn)
 
 
 class AverageMeter(object):

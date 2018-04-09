@@ -54,8 +54,6 @@ class ImageNetVideoDataset(data.Dataset):
         bbox_width = (cur_annotation['xmax'] - cur_annotation['xmin']) / patch_size - 1
         bbox_height = (cur_annotation['ymax'] - cur_annotation['ymin']) / patch_size - 1
 
-        # TODO: Make sure bbox is not zero-sized.
-
         # Use the target from the previous frame as the positive peer.
         prev_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + prev_frame + '.JPEG')
         pos_x_mid = (prev_annotation['xmin'] + prev_annotation['xmax']) * 0.5
@@ -67,7 +65,7 @@ class ImageNetVideoDataset(data.Dataset):
         pos_ymin = max(0, int(pos_y_mid - patch_size * 0.5))
         pos_xmax = pos_xmin + pos_patch_size
         pos_ymax = pos_ymin + pos_patch_size
-        pos_peer = prev_img.crop((pos_xmin,
+        pos_sample = prev_img.crop((pos_xmin,
                                   pos_ymin,
                                   pos_xmax,
                                   pos_ymax))
@@ -102,25 +100,25 @@ class ImageNetVideoDataset(data.Dataset):
             neg_xmax = xmin + patch_size
             neg_ymax = ymin + patch_size
 
-        neg_peer = cur_img.crop((neg_xmin, neg_ymin, neg_xmax, neg_ymax))
+        neg_sample = cur_img.crop((neg_xmin, neg_ymin, neg_xmax, neg_ymax))
 
         if self._subset == 'train':
             if np.random.uniform(-1, 1) > 0:
                 cur_target = F.hflip(cur_target)
-                pos_peer = F.hflip(pos_peer)
-                neg_peer = F.hflip(neg_peer)
+                pos_sample = F.hflip(pos_sample)
+                neg_sample = F.hflip(neg_sample)
 
         if self._transform is not None:
             return self._transform(cur_target), \
-                   self._transform(pos_peer), \
-                   self._transform(neg_peer), \
+                   self._transform(pos_sample), \
+                   self._transform(neg_sample), \
                    torch.FloatTensor([bbox_x, bbox_y, bbox_width, bbox_height]), \
                    torch.FloatTensor([pos_bbox_x, pos_bbox_y, pos_bbox_width, pos_bbox_height])
         else:
             # noinspection PyArgumentList
             return cur_target, \
-                   pos_peer, \
-                   neg_peer, \
+                   pos_sample, \
+                   neg_sample, \
                    torch.FloatTensor([bbox_x, bbox_y, bbox_width, bbox_height]), \
                    torch.FloatTensor([pos_bbox_x, pos_bbox_y, pos_bbox_width, pos_bbox_height])
 
