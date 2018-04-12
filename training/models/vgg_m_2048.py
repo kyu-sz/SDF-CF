@@ -91,11 +91,10 @@ class VGG_M_2048(nn.Module):
         for name, module in self.features.named_children():
             x = module(x)
             if name in output_layers:
+                output_dict[name] = x
                 if num_outputs_left > 1:
-                    output_dict[name] = x.clone()
                     num_outputs_left -= 1
                 else:
-                    output_dict[name] = x
                     return output_dict
 
         if 'bbox_reg' in output_layers:
@@ -108,9 +107,8 @@ class VGG_M_2048(nn.Module):
         for name, module in self.classifier.named_children():
             x = module(x)
             if name in output_layers:
+                output_dict[name] = x
                 if num_outputs_left > 1:
-                    output_dict[name] = x.clone()
                     num_outputs_left -= 1
                 else:
-                    output_dict[name] = x
                     return output_dict

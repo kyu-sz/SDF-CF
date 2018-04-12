@@ -138,7 +138,13 @@ class ImageNetDataset(data.Dataset):
                     or not self._download_img(img_annotation['folder'], img_annotation['filename']):
                 # print('Image {} for annotation {}/{} is not available!'.format(img_path, wnid, annotation_fn))
                 return self[np.random.randint(0, len(self))]
-        img = self._loader(img_path)
+        try:
+            img = self._loader(img_path)
+        except OSError:
+            if img_annotation['filename'] + '.JPEG' not in self._url_dict \
+                    or not self._download_img(img_annotation['folder'], img_annotation['filename']):
+                # print('Image {} is broken and not available on the Internet!'.format(img_path))
+                return self[np.random.randint(0, len(self))]
 
         # Crop the square patch of the object.
         scale = np.random.uniform(0.5, 1.1)

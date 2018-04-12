@@ -3,7 +3,7 @@ import torch.nn as nn
 
 
 class MaskedSmoothnessLoss(nn.Module):
-    def __init__(self, diff_bound=0.002):
+    def __init__(self, diff_bound=0.001):
         super(MaskedSmoothnessLoss, self).__init__()
         self._diff_bound = diff_bound
 
@@ -13,17 +13,17 @@ class MaskedSmoothnessLoss(nn.Module):
 
         bbox_width = torch.clamp(torch.ceil(patch_width * (1 + bbox[:, 2])).int(), 1, patch_width)
         bbox_height = torch.clamp(torch.ceil(patch_height * (1 + bbox[:, 3])).int(), 1, patch_height)
-        bbox_xmin = torch.clamp((patch_width * (0.5 - bbox[:, 0])).int(), 0, patch_width)
-        bbox_ymin = torch.clamp((patch_height * (0.5 - bbox[:, 1])).int(), 0, patch_height)
-        bbox_xmax = bbox_xmin + bbox_width
-        bbox_ymax = bbox_ymin + bbox_height
+        bbox_xmin = torch.clamp((patch_width * bbox[:, 0]).int(), 0, patch_width - 1)
+        bbox_ymin = torch.clamp((patch_height * bbox[:, 1]).int(), 0, patch_height - 1)
+        bbox_xmax = torch.clamp(bbox_xmin + bbox_width, 0, patch_width - 1)
+        bbox_ymax = torch.clamp(bbox_ymin + bbox_height, 0, patch_height - 1)
 
         pos_bbox_width = torch.clamp(torch.ceil(patch_width * (1 + pos_bbox[:, 2])).int(), 1, patch_width)
         pos_bbox_height = torch.clamp(torch.ceil(patch_height * (1 + pos_bbox[:, 3])).int(), 1, patch_height)
-        pos_bbox_xmin = torch.clamp((patch_width * (0.5 - pos_bbox[:, 0])).int(), 0, patch_width)
-        pos_bbox_ymin = torch.clamp((patch_height * (0.5 - pos_bbox[:, 1])).int(), 0, patch_height)
-        pos_bbox_xmax = pos_bbox_xmin + pos_bbox_width
-        pos_bbox_ymax = pos_bbox_ymin + pos_bbox_height
+        pos_bbox_xmin = torch.clamp((patch_width * pos_bbox[:, 0]).int(), 0, patch_width - 1)
+        pos_bbox_ymin = torch.clamp((patch_height * pos_bbox[:, 1]).int(), 0, patch_height - 1)
+        pos_bbox_xmax = torch.clamp(pos_bbox_xmin + pos_bbox_width, 0, patch_width - 1)
+        pos_bbox_ymax = torch.clamp(pos_bbox_ymin + pos_bbox_height, 0, patch_height - 1)
 
         intersect_xmin = torch.max(bbox_xmin, pos_bbox_xmin)
         intersect_xmax = torch.min(bbox_xmax, pos_bbox_xmax)

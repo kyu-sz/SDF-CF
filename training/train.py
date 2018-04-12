@@ -135,10 +135,10 @@ def main():
         adjust_learning_rate(optimizer, epoch)
 
         # train smoothness and classification iteratively in each epoch.
-        train_classfication(cls_train_loader, model, cls_criterion, bbox_criterion, optimizer, epoch,
-                            logger, vis)
         train_smoothness(smoothness_train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch,
                          logger, vis)
+        train_classfication(cls_train_loader, model, cls_criterion, bbox_criterion, optimizer, epoch,
+                            logger, vis)
 
         # evaluate smoothness on validation set
         if epoch % args.eval_freq == 0 or epoch == args.epochs - 1:
@@ -176,16 +176,21 @@ def train_classfication(train_loader, model, cls_criterion, bbox_criterion, opti
         # measure data loading time
         data_time.update(time.time() - end)
 
-        image_var = torch.autograd.Variable(image, requires_grad=True)
         cid_var = torch.autograd.Variable(cid, requires_grad=False).cuda(async=True)
         bbox_var = torch.autograd.Variable(bbox, requires_grad=False).cuda(async=True)
+        image_var = torch.autograd.Variable(image, requires_grad=False).cuda(async=False)
 
         # compute output
         output = model.forward(image_var, ['fc8ext', 'bbox_reg'])
 
         # Compute losses.
         cls_loss = cls_criterion(output['fc8ext'], cid_var)
-        bbox_loss = bbox_criterion(output['bbox_reg'], bbox_var)
+        try:
+            bbox_loss = bbox_criterion(output['bbox_reg'], bbox_var)
+        except RuntimeError:
+            print(output['bbox_reg'].cpu().data)
+            print(bbox)
+            exit(1)
         total_loss = cls_loss + bbox_loss
 
         # measure metrics and record loss
@@ -230,9 +235,9 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
         # measure data loading time
         data_time.update(time.time() - end)
 
-        target_var = torch.autograd.Variable(target, requires_grad=True).cuda(async=True)
-        pos_var = torch.autograd.Variable(pos_sample, requires_grad=True).cuda(async=True)
-        neg_var = torch.autograd.Variable(neg_sample, requires_grad=True).cuda(async=True)
+        target_var = torch.autograd.Variable(target, requires_grad=False).cuda(async=True)
+        pos_var = torch.autograd.Variable(pos_sample, requires_grad=False).cuda(async=True)
+        neg_var = torch.autograd.Variable(neg_sample, requires_grad=False).cuda(async=True)
         bbox_var = torch.autograd.Variable(bbox, requires_grad=False).cuda(async=True)
 
         # compute output
