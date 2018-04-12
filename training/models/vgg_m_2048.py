@@ -41,49 +41,96 @@ class VGG_M_2048(nn.Module):
         nn.init.constant(self.bbox_reg.bias, 0)
 
         if model_path is not None:
-            if model_path.endswith('mat'):
-                mat = scipy.io.loadmat(model_path)
-                mat_layers = list(mat['layers'])[0]
-
-                # copy conv weights
-                for i in range(len(mat_layers)):
-                    if mat_layers[i]['type'] == 'conv':
-                        for name, module in self.features.named_children():
-                            if name == mat_layers[i]['name']:
-                                weight, bias = mat_layers[i]['weights'].item()[0]
-                                module.weight.data = torch.from_numpy(np.transpose(weight, (3, 2, 0, 1)))
-                                module.bias.data = torch.from_numpy(bias[:, 0])
-                                print('Weights of layer {} loaded!'.format(name))
-                                break
-            else:
-                raise NotImplementedError
+            self.load(model_path)
         elif model_url is not None:
             self.features.load_state_dict(model_zoo.load_url(model_url))
 
-    def save(self, model_path):
-        self.cpu()
+    def load(self, model_path):
         if model_path.endswith('mat'):
-            model_dict = {'layers': []}
+            mat = scipy.io.loadmat(model_path)
+            mat_layers = list(mat['layers'])[0]
+
+            # copy conv weights
+            for i in range(len(mat_layers)):
+                if mat_layers[i]['type'] == 'conv':
+                    for name, module in self.features.named_children():
+                        if name == mat_layers[i]['name']:
+                            weight, bias = mat_layers[i]['weights'].item()[0]
+                            module.weight.data = torch.from_numpy(np.transpose(weight, (3, 2, 0, 1)))
+                            module.bias.data = torch.from_numpy(bias[:, 0])
+                            print('Weights of layer {} loaded!'.format(name))
+                            break
+        elif 'pth' in model_path:
+            state = torch.load(model_path)
+            self.load_state_dict(state['state_dict'])
+        else:
+            raise NotImplementedError
+
+    def save(self, model_path):
+        if model_path.endswith('mat'):
+            model_dict = {'layers': [],
+                          'meta': {'inputs': {'name': 'data',
+                                              'size': [224, 224, 3, 10]},
+                                   # TODO: fill in class names and description here
+                                   'classes': {'name': {},
+                                               'description': {}},
+                                   'normalization': {'imageSize': [224, 224, 3, 10],
+                                                     # TODO: fill in the 'averageImage' field here
+                                                     'keepAspect': 1,
+                                                     'boarder': [32, 32],
+                                                     'cropSize': [0.875, 0.875],
+                                                     'interpolation': 'bilinear'}}}
             for name, module in chain(self.features.named_children(),
                                       self.classifier.named_children(),
                                       self.bbox_reg.named_children()):
-                layer = {'name': name,
-                         'type': 'conv',
-                         'weights': [module.weight.data.numpy(), module.bias.data.numpy()],
-                         'size': [module.kernel_size[0],
-                                  module.kernel_size[1],
-                                  module.in_channels,
-                                  module.out_channels],
-                         'pad': [0, 0, 0, 0],
-                         'stride': [module.stride[0], module.stride[0], module.stride[1], module.stride[1]],
-                         'dilation': [module.dilation[0], module.dilation[1]]}
+                if type(module) is nn.Conv2d:
+                    layer = {'name': name,
+                             'type': 'conv',
+                             'weights': [np.transpose(module.weight.data.cpu().numpy(), [2, 3, 1, 0]),
+                                         module.bias.data.cpu().numpy()],
+                             'size': [module.kernel_size[0],
+                                      module.kernel_size[1],
+                                      module.in_channels,
+                                      module.out_channels],
+                             'pad': [0, 0, 0, 0],
+                             'stride': [module.stride[0], module.stride[0], module.stride[1], module.stride[1]],
+                             'dilation': [module.dilation[0], module.dilation[1]]}
+                elif type(module) is nn.ReLU:
+                    layer = {'name': name,
+                             'type': 'relu',
+                             'leak': 0,
+                             'weights': [],
+                             'precious': 0}
+                elif type(module) is nn.CrossMapLRN2d:
+                    layer = {'name': name,
+                             'type': 'lrn',
+                             'param': [module.size, module.k, module.alpha, module.beta],
+                             'weights': [],
+                             'precious': 0}
+                elif type(module) is nn.MaxPool2d:
+                    layer = {'name': name,
+                             'type': 'pool',
+                             'method': 'max',
+                             'pool': [module.kernel_size, module.kernel_size],
+                             'stride': [module.stride, module.stride],
+                             'pad': [module.padding, module.padding, module.padding, module.padding],
+                             'weights': [],
+                             'precious': 0,
+                             'opts': []}
+                elif type(module) is nn.Softmax:
+                    layer = {'name': name,
+                             'type': 'softmax',
+                             'weights': [],
+                             'precious': 0}
+                else:
+                    print('Matlab conversion for {} is not implemented!'.format(type(module)))
+                    raise NotImplementedError
                 model_dict['layers'].append(layer)
-            scipy.io.savemat(model_path, mdict=model_dict)
-        elif model_path.endswith('pth'):
-            raise NotImplementedError
+            scipy.io.savemat(model_path, mdict=model_dict, oned_as='column')
+        elif 'pth' in model_path:
+            torch.save({'state_dict': self.state_dict()}, model_path)
         else:
             raise NotImplementedError
-        self.cuda()
 
     def forward(self, x, output_layers):
         output_dict = {}

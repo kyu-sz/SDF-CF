@@ -117,7 +117,7 @@ def main():
             print("=> loading checkpoint '{}'".format(args.resume))
             checkpoint = torch.load(args.resume)
             args.start_epoch = checkpoint['epoch']
-            best_loss = checkpoint['best_prec1']
+            best_loss = checkpoint['best_loss']
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
             print("=> loaded checkpoint '{}' (epoch {})"
@@ -142,17 +142,17 @@ def main():
 
         # evaluate smoothness on validation set
         if epoch % args.eval_freq == 0 or epoch == args.epochs - 1:
-            loss = validate(smoothness_val_loader, model, smoothness_criterion, bbox_criterion, epoch, logger)
             # remember best prec@1 and save checkpoint
+            loss = validate(smoothness_val_loader, model, smoothness_criterion, bbox_criterion, epoch, logger)
             is_best = loss < best_loss
             best_loss = min(loss, best_loss)
+
             save_checkpoint({
                 'epoch': epoch + 1,
                 'state_dict': model.state_dict(),
                 'best_loss': best_loss,
                 'optimizer': optimizer.state_dict(),
-            }, is_best)
-
+            }, model, is_best)
             if is_best:
                 eco_eval(model)
 
@@ -181,21 +181,23 @@ def train_classfication(train_loader, model, cls_criterion, bbox_criterion, opti
         image_var = torch.autograd.Variable(image, requires_grad=False).cuda(async=False)
 
         # compute output
-        output = model.forward(image_var, ['fc8ext', 'bbox_reg'])
+        # output = model.forward(image_var, ['fc8ext', 'bbox_reg'])
+        output = model.forward(image_var, ['fc8ext'])
 
         # Compute losses.
         cls_loss = cls_criterion(output['fc8ext'], cid_var)
-        try:
-            bbox_loss = bbox_criterion(output['bbox_reg'], bbox_var)
-        except RuntimeError:
-            print(output['bbox_reg'].cpu().data)
-            print(bbox)
-            exit(1)
-        total_loss = cls_loss + bbox_loss
+        # try:
+        #     bbox_loss = bbox_criterion(output['bbox_reg'], bbox_var)
+        # except RuntimeError:
+        #     print(output['bbox_reg'].cpu().data)
+        #     print(bbox)
+        #     exit(1)
+        total_loss = cls_loss
+        # total_loss = cls_loss + bbox_loss
 
         # measure metrics and record loss
         cls_losses.update(cls_loss.data[0], image_var.size(0))
-        bbox_losses.update(bbox_loss.data[0], image_var.size(0))
+        # bbox_losses.update(bbox_loss.data[0], image_var.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -216,7 +218,7 @@ def train_classfication(train_loader, model, cls_criterion, bbox_criterion, opti
                 data_time=data_time, cls_loss=cls_losses, bbox_loss=bbox_losses))
 
         logger.scalar_summary('training/classification_losses', cls_loss.data[0], epoch * len(train_loader) + i)
-        logger.scalar_summary('training/bbox_losses', bbox_loss.data[0], epoch * len(train_loader) + i)
+        # logger.scalar_summary('training/bbox_losses', bbox_loss.data[0], epoch * len(train_loader) + i)
 
 
 def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch, logger, vis):
@@ -338,10 +340,13 @@ def validate(val_loader, model, smoothness_criterion, bbox_criterion, epoch, log
     return pos_losses.avg + neg_losses.avg + bbox_losses.avg
 
 
-def save_checkpoint(state, is_best, state_fn='checkpoint.pth.tar', model_fn='model_best.pth.tar'):
-    torch.save(state, state_fn)
+def save_checkpoint(state, model, is_best, state_path='checkpoint.pth.tar'):
+    model.module.save('model_best.mat')
+
+    torch.save(state, state_path)
     if is_best:
-        shutil.copyfile(state_fn, model_fn)
+        shutil.copyfile(state_path, 'model_best.pth.tar')
+        model.module.save('model_best.mat')
 
 
 class AverageMeter(object):

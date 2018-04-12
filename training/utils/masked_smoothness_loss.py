@@ -44,6 +44,5 @@ class MaskedSmoothnessLoss(nn.Module):
                 pos_loss += torch.mean(
                     torch.abs(x[i, :, intersect_ymin[i]:intersect_ymax[i], intersect_xmin[i]:intersect_xmax[i]]
                               - pos[i, :, intersect_ymin[i]:intersect_ymax[i], intersect_xmin[i]:intersect_xmax[i]]))
-            else:
-                print(intersect_width[i])
+
         return pos_loss, neg_loss
