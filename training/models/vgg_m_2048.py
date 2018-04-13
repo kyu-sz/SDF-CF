@@ -37,8 +37,12 @@ class VGG_M_2048(nn.Module):
             ('prob', nn.Softmax(dim=1))]))
 
         self.bbox_reg = nn.Conv2d(2048, 4, kernel_size=1, stride=1, padding=0)
+
+        # Initialize the FC layers with all 0 parameters to prevent messing up the other parameters.
         nn.init.constant(self.bbox_reg.weight, 0)
         nn.init.constant(self.bbox_reg.bias, 0)
+        nn.init.constant(self.classifier.fc8ext.weight, 0)
+        nn.init.constant(self.classifier.fc8ext.bias, 0)
 
         if model_path is not None:
             self.load(model_path)

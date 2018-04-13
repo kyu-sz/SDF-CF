@@ -172,32 +172,31 @@ def train_classfication(train_loader, model, cls_criterion, bbox_criterion, opti
 
     end = time.time()
 
-    for i, (image, cid, bbox) in enumerate(train_loader):
+    for i, (images, cid, bbox) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
-        cid_var = torch.autograd.Variable(cid, requires_grad=False).cuda(async=True)
+        cid_var = torch.autograd.Variable(cid - 1, requires_grad=False).cuda(async=True)
         bbox_var = torch.autograd.Variable(bbox, requires_grad=False).cuda(async=True)
-        image_var = torch.autograd.Variable(image, requires_grad=False).cuda(async=False)
+        image_var = torch.autograd.Variable(images, requires_grad=False).cuda(async=False)
 
         # compute output
-        # output = model.forward(image_var, ['fc8ext', 'bbox_reg'])
-        output = model.forward(image_var, ['fc8ext'])
+        output = model.forward(image_var, ['fc8ext', 'bbox_reg'])
 
         # Compute losses.
         cls_loss = cls_criterion(output['fc8ext'], cid_var)
-        # try:
-        #     bbox_loss = bbox_criterion(output['bbox_reg'], bbox_var)
-        # except RuntimeError:
-        #     print(output['bbox_reg'].cpu().data)
-        #     print(bbox)
-        #     exit(1)
-        total_loss = cls_loss
-        # total_loss = cls_loss + bbox_loss
+        try:
+            bbox_loss = bbox_criterion(output['bbox_reg'], bbox_var)
+        except RuntimeError:
+            print(output['bbox_reg'].cpu().data)
+            print(bbox)
+            exit(1)
+        total_loss = cls_loss + bbox_loss
+        # total_loss = bbox_loss
 
         # measure metrics and record loss
         cls_losses.update(cls_loss.data[0], image_var.size(0))
-        # bbox_losses.update(bbox_loss.data[0], image_var.size(0))
+        bbox_losses.update(bbox_loss.data[0], image_var.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -217,8 +216,14 @@ def train_classfication(train_loader, model, cls_criterion, bbox_criterion, opti
                 epoch, i, len(train_loader), batch_time=batch_time,
                 data_time=data_time, cls_loss=cls_losses, bbox_loss=bbox_losses))
 
-        logger.scalar_summary('training/classification_losses', cls_loss.data[0], epoch * len(train_loader) + i)
-        # logger.scalar_summary('training/bbox_losses', bbox_loss.data[0], epoch * len(train_loader) + i)
+        if i % args.vis_freq == 0:
+            for c in range(images.shape[1]):
+                images[:, c, ...] = images[:, c, ...] * INPUT_STD[c] + INPUT_MEAN[c]
+            sample_list = [images[b, ...] for b in range(images.shape[0])]
+            logger.image_summary('training/cls_samples', sample_list, epoch * len(train_loader) + i)
+
+        logger.scalar_summary('training/cls_losses', cls_loss.data[0], epoch * len(train_loader) + i)
+        logger.scalar_summary('training/bbox_losses', bbox_loss.data[0], epoch * len(train_loader) + i)
 
 
 def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch, logger, vis):
@@ -290,7 +295,7 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
 
             sample_list = [concat_imgs[b, ...] for b in range(concat_imgs.shape[0])]
 
-            logger.image_summary('training/samples', sample_list, epoch * len(train_loader) + i)
+            logger.image_summary('training/smoothness_samples', sample_list, epoch * len(train_loader) + i)
 
         logger.scalar_summary('training/smoothness_losses', smoothness_loss.data[0], epoch * len(train_loader) + i)
         logger.scalar_summary('training/pos_losses', pos_loss.data[0], epoch * len(train_loader) + i)

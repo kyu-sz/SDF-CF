@@ -145,6 +145,7 @@ class ImageNetDataset(data.Dataset):
                     or not self._download_img(img_annotation['folder'], img_annotation['filename']):
                 # print('Image {} is broken and not available on the Internet!'.format(img_path))
                 return self[np.random.randint(0, len(self))]
+            img = self._loader(img_path)
 
         # Crop the square patch of the object.
         scale = np.random.uniform(0.5, 1.1)
