@@ -39,7 +39,7 @@ class ImageNetVideoDataset(data.Dataset):
         xmin = cur_annotation['objects'][0]['xmin']
         xmax = cur_annotation['objects'][0]['xmax']
         ymin = cur_annotation['objects'][0]['ymin']
-        ymax = cur_annotation['objects'][0]['ymax'] 
+        ymax = cur_annotation['objects'][0]['ymax']
         x_mid = (xmin + xmax) * 0.5
         y_mid = (ymin + ymax) * 0.5
         patch_size = min(max(xmax - xmin,
@@ -63,7 +63,7 @@ class ImageNetVideoDataset(data.Dataset):
         prev_xmin = prev_annotation['objects'][0]['xmin']
         prev_xmax = prev_annotation['objects'][0]['xmax']
         prev_ymin = prev_annotation['objects'][0]['ymin']
-        prev_ymax = prev_annotation['objects'][0]['ymax'] 
+        prev_ymax = prev_annotation['objects'][0]['ymax']
         pos_x_mid = (prev_xmin + prev_xmax) * 0.5
         pos_y_mid = (prev_ymin + prev_ymax) * 0.5
         pos_patch_size = min(max(prev_xmax - prev_xmin,
@@ -74,9 +74,9 @@ class ImageNetVideoDataset(data.Dataset):
         pos_patch_xmax = pos_patch_xmin + pos_patch_size
         pos_patch_ymax = pos_patch_ymin + pos_patch_size
         pos_sample = prev_img.crop((pos_patch_xmin,
-                                  pos_patch_ymin,
-                                  pos_patch_xmax,
-                                  pos_patch_ymax))
+                                    pos_patch_ymin,
+                                    pos_patch_xmax,
+                                    pos_patch_ymax))
         pos_bbox_x = (prev_xmin + prev_xmax - pos_patch_xmin - pos_patch_xmax) * 0.5 / pos_patch_size
         pos_bbox_y = (prev_ymin + prev_ymax - pos_patch_ymin - pos_patch_ymax) * 0.5 / pos_patch_size
         pos_bbox_width = (prev_xmax - prev_xmin) / pos_patch_size - 1
@@ -85,15 +85,13 @@ class ImageNetVideoDataset(data.Dataset):
         # Pick negative peer.
         if self._subset == 'train':
             # For training, pick a neighboring area as the negative peer.
-            if patch_size == min(cur_annotation['width'], cur_annotation['height']):
-                neg_patch_size = patch_size * np.random.uniform(0.5, 1)
-            else:
-                neg_patch_size = min(min(cur_annotation['width'], cur_annotation['height']),
-                                     patch_size * np.random.uniform(0.5, 1.5))
-            neg_patch_xmin = min(max(patch_xmin + patch_size * np.random.uniform(-0.2, 0.2), 0),
-                           cur_annotation['width'] - neg_patch_size)
-            neg_patch_ymin = min(max(patch_ymin + patch_size * np.random.uniform(-0.2, 0.2), 0),
-                           cur_annotation['height'] - neg_patch_size)
+            neg_patch_size = \
+                patch_size \
+                * np.random.uniform(0.5, max(1.5, min(cur_annotation['width'], cur_annotation['height']) / patch_size))
+            neg_patch_xmin = min(max(patch_xmin + patch_size * np.random.uniform(-0.4, 0.4), 0),
+                                 cur_annotation['width'] - neg_patch_size)
+            neg_patch_ymin = min(max(patch_ymin + patch_size * np.random.uniform(-0.4, 0.4), 0),
+                                 cur_annotation['height'] - neg_patch_size)
             neg_patch_xmax = neg_patch_xmin + neg_patch_size
             neg_patch_ymax = neg_patch_ymin + neg_patch_size
         else:

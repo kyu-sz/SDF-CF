@@ -223,7 +223,7 @@ def train_classfication(train_loader, model, cls_criterion, bbox_criterion, opti
             logger.image_summary('training/cls_samples', sample_list, epoch * len(train_loader) + i)
 
         logger.scalar_summary('training/cls_losses', cls_loss.data[0], epoch * len(train_loader) + i)
-        logger.scalar_summary('training/bbox_losses', bbox_loss.data[0], epoch * len(train_loader) + i)
+        logger.scalar_summary('training/cls_bbox_losses', bbox_loss.data[0], epoch * len(train_loader) + i)
 
 
 def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch, logger, vis):
