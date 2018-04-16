@@ -112,12 +112,14 @@ def main():
                                 weight_decay=args.weight_decay)
 
     # optionally resume from a checkpoint
+    skip_a_smoothness = False
     if args.resume:
         if os.path.isfile(args.resume):
             print("=> loading checkpoint '{}'".format(args.resume))
             checkpoint = torch.load(args.resume)
             args.start_epoch = checkpoint['epoch']
             best_loss = checkpoint['best_loss']
+            skip_a_smoothness = (checkpoint['phase'] == 'classification')
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
             print("=> loaded checkpoint '{}' (epoch {})"
@@ -135,11 +137,19 @@ def main():
         adjust_learning_rate(optimizer, epoch)
 
         # train smoothness and classification iteratively in each epoch.
-        train_smoothness(smoothness_train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch,
-                         logger, vis)
+        if not skip_a_smoothness:
+            train_smoothness(smoothness_train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch,
+                             logger, vis)
+            save_checkpoint({
+                'epoch':      epoch,
+                'phase':      'classification',
+                'state_dict': model.state_dict(),
+                'best_loss':  best_loss,
+                'optimizer':  optimizer.state_dict(),
+            }, model, False)
+
         train_classfication(cls_train_loader, model, cls_criterion, bbox_criterion, optimizer, epoch,
                             logger, vis)
-
         # evaluate smoothness on validation set
         if epoch % args.eval_freq == 0 or epoch == args.epochs - 1:
             # remember best prec@1 and save checkpoint
@@ -149,12 +159,21 @@ def main():
 
             save_checkpoint({
                 'epoch': epoch + 1,
+                'phase': 'smoothness',
                 'state_dict': model.state_dict(),
                 'best_loss': best_loss,
                 'optimizer': optimizer.state_dict(),
             }, model, is_best)
             if is_best:
                 eco_eval(model)
+        else:
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'phase': 'smoothness',
+                'state_dict': model.state_dict(),
+                'best_loss': best_loss,
+                'optimizer': optimizer.state_dict(),
+            }, model, False)
 
 
 def to_np(x):
@@ -176,7 +195,7 @@ def train_classfication(train_loader, model, cls_criterion, bbox_criterion, opti
         # measure data loading time
         data_time.update(time.time() - end)
 
-        cid_var = torch.autograd.Variable(cid - 1, requires_grad=False).cuda(async=True)
+        cid_var = torch.autograd.Variable(cid, requires_grad=False).cuda(async=True)
         bbox_var = torch.autograd.Variable(bbox, requires_grad=False).cuda(async=True)
         image_var = torch.autograd.Variable(images, requires_grad=False).cuda(async=False)
 

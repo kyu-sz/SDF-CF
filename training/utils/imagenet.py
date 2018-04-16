@@ -52,7 +52,7 @@ class ImageNetDataset(data.Dataset):
         with open(osp.dirname(osp.realpath(__file__)) + '/imagenet_cls.txt', 'r') as f:
             for line in f:
                 wnid, cid, name = line.split()
-                cid = int(cid)
+                cid = int(cid) - 1
                 wnid_set.add(wnid)
                 self.idx2cls[cid] = wnid
                 self.num_classes += 1
@@ -113,9 +113,9 @@ class ImageNetDataset(data.Dataset):
 
     def __getitem__(self, index):
         # Read the annotation for the frame.
-        cid = np.searchsorted(self._idx_end, index + 1) + 1
+        cid = np.searchsorted(self._idx_end, index + 1)
         wnid = self.idx2cls[cid]
-        idx_in_class = index - (self._idx_end[cid - 2] if cid >= 2 else 0)
+        idx_in_class = index - (self._idx_end[cid - 1] if cid >= 1 else 0)
         annotation_fn = sorted(os.listdir(self.annotation_dir(wnid)))[idx_in_class]
         img_annotation = read_annotation(osp.join(self.annotation_dir(wnid), annotation_fn))
 
@@ -126,25 +126,20 @@ class ImageNetDataset(data.Dataset):
                 obj_annotation = obj
                 break
         if obj_annotation is None:
-            rnd_idx = np.random.randint(0, len(self))
-            # print('Annotation file {} at index {} has no object annotated! Try {}...'
-            #       .format(osp.join(self.annotation_dir(wnid), annotation_fn), index, rnd_idx))
-            return self[rnd_idx]
+            return self[np.random.randint(len(self))]
 
         # Load image. Download it if the image file does not exist.
         img_path = osp.join(self.image_dir(img_annotation['folder']), img_annotation['filename'] + '.JPEG')
         if not os.path.exists(img_path):
             if img_annotation['filename'] + '.JPEG' not in self._url_dict \
                     or not self._download_img(img_annotation['folder'], img_annotation['filename']):
-                # print('Image {} for annotation {}/{} is not available!'.format(img_path, wnid, annotation_fn))
-                return self[np.random.randint(0, len(self))]
+                return self[np.random.randint(len(self))]
         try:
             img = self._loader(img_path)
         except OSError:
             if img_annotation['filename'] + '.JPEG' not in self._url_dict \
                     or not self._download_img(img_annotation['folder'], img_annotation['filename']):
-                # print('Image {} is broken and not available on the Internet!'.format(img_path))
-                return self[np.random.randint(0, len(self))]
+                return self[np.random.randint(len(self))]
             img = self._loader(img_path)
 
         # Crop the square patch of the object.
