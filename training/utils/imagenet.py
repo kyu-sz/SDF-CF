@@ -59,21 +59,21 @@ class ImageNetDataset(data.Dataset):
                 _check_or_extract(self.annotation_dir(wnid), '.tar.gz', '../..', async=False)
                 _check_or_extract(self.image_dir(wnid), '.tar', async=True)
                 self._num_samples_per_class.append(
-                    len([fn for fn in os.listdir(self.annotation_dir(wnid)) if fn.endswith('xml')])
-                    if osp.exists(self.annotation_dir(wnid)) else 0)
+                        len([fn for fn in os.listdir(self.annotation_dir(wnid)) if fn.endswith('xml')])
+                        if osp.exists(self.annotation_dir(wnid)) else 0)
 
         # find classes that are newly available in the ImageNet dataset, other than the 1000 classes.
         for wnid in annotations:
             wnid = wnid[:-7] if wnid.endswith('.tar.gz') else wnid
             if wnid not in wnid_set and (wnid in image_data or wnid + '.tar' in image_data):
-                self.num_classes += 1
                 self.idx2cls[self.num_classes] = wnid
+                self.num_classes += 1
                 wnid_set.add(wnid)
                 _check_or_extract(osp.join(self._annotation_dir, wnid), '.tar.gz', '../..', async=False)
                 _check_or_extract(osp.join(self._image_dir, wnid), '.tar', async=True)
                 self._num_samples_per_class.append(
-                    len([fn for fn in os.listdir(self.annotation_dir(wnid)) if fn.endswith('xml')])
-                    if osp.exists(self.annotation_dir(wnid)) else 0)
+                        len([fn for fn in os.listdir(self.annotation_dir(wnid)) if fn.endswith('xml')])
+                        if osp.exists(self.annotation_dir(wnid)) else 0)
 
         self._idx_end = np.cumsum(self._num_samples_per_class)
 
@@ -143,17 +143,18 @@ class ImageNetDataset(data.Dataset):
             img = self._loader(img_path)
 
         # Crop the square patch of the object.
-        scale = np.random.uniform(0.5, 1.1)
+        scale = np.random.uniform(0.7, 1.1)
 
         x_mid = (obj_annotation['xmin'] + obj_annotation['xmax']) * 0.5
         y_mid = (obj_annotation['ymin'] + obj_annotation['ymax']) * 0.5
-        patch_size = min(max(obj_annotation['xmax'] - obj_annotation['xmin'],
-                             obj_annotation['ymax'] - obj_annotation['ymin']) * scale,
-                         min(img_annotation['width'], img_annotation['height']))
+        patch_size = max(min(max(np.ceil(obj_annotation['xmax'] - obj_annotation['xmin'],
+                                         obj_annotation['ymax'] - obj_annotation['ymin']) * scale),
+                             min(img_annotation['width'], img_annotation['height'])),
+                         7)
         xmin = min(img_annotation['width'] - patch_size,
-                   max(0, int(x_mid - (patch_size * 0.5 + np.random.uniform(-0.1, 0.1)))))
+                   max(0, int(x_mid - patch_size * (0.5 + np.random.uniform(-0.1, 0.1)))))
         ymin = min(img_annotation['height'] - patch_size,
-                   max(0, int(y_mid - (patch_size * 0.5 + np.random.uniform(-0.1, 0.1)))))
+                   max(0, int(y_mid - patch_size * (0.5 + np.random.uniform(-0.1, 0.1)))))
         xmax = xmin + patch_size
         ymax = ymin + patch_size
         img = img.crop((xmin, ymin, xmax, ymax))
@@ -179,5 +180,5 @@ class ImageNetDataset(data.Dataset):
 
 if __name__ == "__main__":
     dataset = ImageNetDataset(
-        osp.join(osp.dirname(osp.realpath(__file__)), '..', '..', 'datasets', 'ImageNet'))
+            osp.join(osp.dirname(osp.realpath(__file__)), '..', '..', 'datasets', 'ImageNet'))
     print('Loaded {} images from {} classes in ImageNet'.format(len(dataset), dataset.num_classes))

@@ -23,7 +23,7 @@ class ImageNetVideoDataset(data.Dataset):
         cur_frame = self._frames[index]
         prev_frame = cur_frame[:-6] + str(int(cur_frame[-6:]) - 1).zfill(6)
 
-        scale = np.random.uniform(0.5, 1.1) if self._subset == 'train' else 1
+        scale = np.random.uniform(0.7, 1.1) if self._subset == 'train' else 1
 
         # Read annotation of the target in the current frame and the previous frame.
         cur_annotation_fn = self._data_dir + '/Annotations/VID/' + self._subset + '/' + cur_frame + '.xml'

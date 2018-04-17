@@ -204,12 +204,7 @@ def train_classfication(train_loader, model, cls_criterion, bbox_criterion, opti
 
         # Compute losses.
         cls_loss = cls_criterion(output['fc8ext'], cid_var)
-        try:
-            bbox_loss = bbox_criterion(output['bbox_reg'], bbox_var)
-        except RuntimeError:
-            print(output['bbox_reg'].cpu().data)
-            print(bbox)
-            exit(1)
+        bbox_loss = bbox_criterion(output['bbox_reg'], bbox_var)
         total_loss = cls_loss + bbox_loss
         # total_loss = bbox_loss
 
@@ -365,8 +360,7 @@ def validate(val_loader, model, smoothness_criterion, bbox_criterion, epoch, log
 
 
 def save_checkpoint(state, model, is_best, state_path='checkpoint.pth.tar'):
-    model.module.save('model_best.mat')
-
+    model.module.save('checkpoint.mat')
     torch.save(state, state_path)
     if is_best:
         shutil.copyfile(state_path, 'model_best.pth.tar')
