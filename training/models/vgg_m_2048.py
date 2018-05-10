@@ -73,58 +73,59 @@ class VGG_M_2048(nn.Module):
     def save(self, model_path):
         if model_path.endswith('mat'):
             model_dict = {'layers': [],
-                          'meta': {'inputs': {'name': 'data',
-                                              'size': [224, 224, 3, 10]},
-                                   # TODO: fill in class names and description here
-                                   'classes': {'name': {},
-                                               'description': {}},
-                                   'normalization': {'imageSize': [224, 224, 3, 10],
-                                                     # TODO: fill in the 'averageImage' field here
-                                                     'keepAspect': 1,
-                                                     'boarder': [32, 32],
-                                                     'cropSize': [0.875, 0.875],
-                                                     'interpolation': 'bilinear'}}}
+                          'meta':   {'inputs':        {'name': 'data',
+                                                       'size': [224, 224, 3, 10]},
+                                     # TODO: fill in class names and description here
+                                     'classes':       {'name':        {},
+                                                       'description': {}},
+                                     'normalization': {'imageSize':     [224, 224, 3, 10],
+                                                       # TODO: fill in the 'averageImage' field here
+                                                       'keepAspect':    1,
+                                                       'boarder':       [32, 32],
+                                                       'cropSize':      [0.875, 0.875],
+                                                       'interpolation': 'bilinear'}}}
             for name, module in chain(self.features.named_children(),
                                       self.classifier.named_children(),
                                       self.bbox_reg.named_children()):
                 if type(module) is nn.Conv2d:
-                    layer = {'name': name,
-                             'type': 'conv',
-                             'weights': [np.transpose(module.weight.data.cpu().numpy(), [2, 3, 1, 0]),
-                                         module.bias.data.cpu().numpy()],
-                             'size': [module.kernel_size[0],
-                                      module.kernel_size[1],
-                                      module.in_channels,
-                                      module.out_channels],
-                             'pad': [0, 0, 0, 0],
-                             'stride': [module.stride[0], module.stride[0], module.stride[1], module.stride[1]],
-                             'dilation': [module.dilation[0], module.dilation[1]]}
+                    layer = {'name':     name,
+                             'type':     'conv',
+                             'weights':  [np.transpose(module.weight.data.cpu().numpy(), [2, 3, 1, 0]),
+                                          module.bias.data.cpu().numpy()],
+                             'size':     [float(module.kernel_size[0]),
+                                          float(module.kernel_size[1]),
+                                          float(module.in_channels),
+                                          float(module.out_channels)],
+                             'pad':      [0, 0, 0, 0],
+                             'stride':   [float(module.stride[0]), float(module.stride[1])],
+                             'dilation': [float(module.dilation[0]), float(module.dilation[1])]}
                 elif type(module) is nn.ReLU:
-                    layer = {'name': name,
-                             'type': 'relu',
-                             'leak': 0,
-                             'weights': [],
+                    layer = {'name':     name,
+                             'type':     'relu',
+                             'leak':     0,
+                             'weights':  [],
                              'precious': 0}
                 elif type(module) is nn.CrossMapLRN2d:
-                    layer = {'name': name,
-                             'type': 'lrn',
-                             'param': [module.size, module.k, module.alpha, module.beta],
-                             'weights': [],
+                    layer = {'name':     name,
+                             'type':     'lrn',
+                             'param':    [float(module.size), float(module.k), float(module.alpha), float(module.beta)],
+                             'weights':  [],
                              'precious': 0}
                 elif type(module) is nn.MaxPool2d:
-                    layer = {'name': name,
-                             'type': 'pool',
-                             'method': 'max',
-                             'pool': [module.kernel_size, module.kernel_size],
-                             'stride': [module.stride, module.stride],
-                             'pad': [module.padding, module.padding, module.padding, module.padding],
-                             'weights': [],
+                    layer = {'name':     name,
+                             'type':     'pool',
+                             'method':   'max',
+                             'pool':     [float(module.kernel_size), float(module.kernel_size)],
+                             'stride':   [float(module.stride), float(module.stride)],
+                             'pad':      [float(module.padding), float(module.padding),
+                                          float(module.padding), float(module.padding)],
+                             'weights':  [],
                              'precious': 0,
-                             'opts': []}
+                             'opts':     []}
                 elif type(module) is nn.Softmax:
-                    layer = {'name': name,
-                             'type': 'softmax',
-                             'weights': [],
+                    layer = {'name':     name,
+                             'type':     'softmax',
+                             'weights':  [],
                              'precious': 0}
                 else:
                     print('Matlab conversion for {} is not implemented!'.format(type(module)))

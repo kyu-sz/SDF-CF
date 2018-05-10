@@ -3,25 +3,24 @@ import os
 import random
 import shutil
 import time
-import os.path as osp
 
 import numpy as np
+import os.path as osp
 import torch
 import torch.backends.cudnn as cudnn
-import torch.nn.parallel
 import torch.nn as nn
+import torch.nn.parallel
 import torch.optim
 import torch.utils.data
 import torch.utils.data.distributed
 import torchvision.transforms as transforms
-import visdom
 
 from models.vgg_m_2048 import VGG_M_2048
-from utils.imagenet_video import ImageNetVideoDataset
-from utils.imagenet import ImageNetDataset
-from utils.logger import Logger
-from utils.masked_smoothness_loss import MaskedSmoothnessLoss
 from utils.eco_eval import eco_eval
+from utils.imagenet import ImageNetDataset
+from utils.imagenet_video import ImageNetVideoDataset
+from utils.logger import Logger
+from utils.smoothness_loss import SmoothnessLoss
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--imagenet-dir', type=str, metavar='N',
@@ -84,18 +83,15 @@ def main():
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
         normalize])
-    smoothness_train_loader = torch.utils.data.DataLoader(
-        ImageNetVideoDataset(osp.join(args.imagenet_video_dir, 'ILSVRC'), 'train', img_transform),
-        batch_size=args.batch_size, shuffle=(train_sampler is None),
-        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
-    smoothness_val_loader = torch.utils.data.DataLoader(
-        ImageNetVideoDataset(osp.join(args.imagenet_video_dir, 'ILSVRC'), 'val', img_transform),
-        batch_size=args.batch_size, shuffle=False,
-        num_workers=args.workers, pin_memory=True)
-    cls_train_loader = torch.utils.data.DataLoader(
-        ImageNetDataset(args.imagenet_dir, img_transform),
-        batch_size=args.batch_size, shuffle=(train_sampler is None),
-        num_workers=args.workers, pin_memory=True, sampler=train_sampler)
+    train_loader = torch.utils.data.DataLoader(
+            ImageNetVideoDataset(osp.join(args.imagenet_video_dir, 'ILSVRC'), 'train', img_transform)
+            + ImageNetDataset(args.imagenet_dir, img_transform),
+            batch_size=args.batch_size, shuffle=(train_sampler is None),
+            num_workers=args.workers, pin_memory=True, sampler=train_sampler)
+    val_loader = torch.utils.data.DataLoader(
+            ImageNetVideoDataset(osp.join(args.imagenet_video_dir, 'ILSVRC'), 'val', img_transform),
+            batch_size=args.batch_size, shuffle=False,
+            num_workers=args.workers, pin_memory=True)
 
     # create model
     model = VGG_M_2048(model_path='models/imagenet_vgg_m_2048.mat')
@@ -104,7 +100,7 @@ def main():
     model = torch.nn.DataParallel(model)
     model.cuda()
 
-    smoothness_criterion = MaskedSmoothnessLoss().cuda()
+    smoothness_criterion = SmoothnessLoss().cuda()
     bbox_criterion = nn.MSELoss().cuda()
     cls_criterion = nn.CrossEntropyLoss().cuda()
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
@@ -112,14 +108,12 @@ def main():
                                 weight_decay=args.weight_decay)
 
     # optionally resume from a checkpoint
-    skip_a_smoothness = False
     if args.resume:
         if os.path.isfile(args.resume):
             print("=> loading checkpoint '{}'".format(args.resume))
             checkpoint = torch.load(args.resume)
             args.start_epoch = checkpoint['epoch']
             best_loss = checkpoint['best_loss']
-            skip_a_smoothness = (checkpoint['phase'] == 'classification')
             model.load_state_dict(checkpoint['state_dict'])
             optimizer.load_state_dict(checkpoint['optimizer'])
             print("=> loaded checkpoint '{}' (epoch {})"
@@ -131,48 +125,41 @@ def main():
 
     # initialize loggers.
     logger = Logger('tflogs', name='sdf-cf')
-    vis = visdom.Visdom(port=7236)
 
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch)
 
-        # train smoothness and classification iteratively in each epoch.
-        if not skip_a_smoothness:
-            train_smoothness(smoothness_train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch,
-                             logger, vis)
-            save_checkpoint({
-                'epoch':      epoch,
-                'phase':      'classification',
-                'state_dict': model.state_dict(),
-                'best_loss':  best_loss,
-                'optimizer':  optimizer.state_dict(),
-            }, model, False)
+        train_smoothness(train_loader, model, optimizer, epoch,
+                         smoothness_criterion, bbox_criterion, cls_criterion,
+                         logger)
+        save_checkpoint({
+            'epoch':      epoch,
+            'state_dict': model.state_dict(),
+            'best_loss':  best_loss,
+            'optimizer':  optimizer.state_dict(),
+        }, model, False)
 
-        train_classfication(cls_train_loader, model, cls_criterion, bbox_criterion, optimizer, epoch,
-                            logger, vis)
         # evaluate smoothness on validation set
         if epoch % args.eval_freq == 0 or epoch == args.epochs - 1:
             # remember best prec@1 and save checkpoint
-            loss = validate(smoothness_val_loader, model, smoothness_criterion, bbox_criterion, epoch, logger)
+            loss = validate(val_loader, model, smoothness_criterion, bbox_criterion, epoch, logger)
             is_best = loss < best_loss
             best_loss = min(loss, best_loss)
 
             save_checkpoint({
-                'epoch': epoch + 1,
-                'phase': 'smoothness',
+                'epoch':      epoch + 1,
                 'state_dict': model.state_dict(),
-                'best_loss': best_loss,
-                'optimizer': optimizer.state_dict(),
+                'best_loss':  best_loss,
+                'optimizer':  optimizer.state_dict(),
             }, model, is_best)
             if is_best:
                 eco_eval(model)
         else:
             save_checkpoint({
-                'epoch': epoch + 1,
-                'phase': 'smoothness',
+                'epoch':      epoch + 1,
                 'state_dict': model.state_dict(),
-                'best_loss': best_loss,
-                'optimizer': optimizer.state_dict(),
+                'best_loss':  best_loss,
+                'optimizer':  optimizer.state_dict(),
             }, model, False)
 
 
@@ -180,67 +167,8 @@ def to_np(x):
     return x.data.cpu().numpy()
 
 
-def train_classfication(train_loader, model, cls_criterion, bbox_criterion, optimizer, epoch, logger, vis):
-    batch_time = AverageMeter()
-    data_time = AverageMeter()
-    cls_losses = AverageMeter()
-    bbox_losses = AverageMeter()
-
-    # switch to train mode
-    model.train()
-
-    end = time.time()
-
-    for i, (images, cid, bbox) in enumerate(train_loader):
-        # measure data loading time
-        data_time.update(time.time() - end)
-
-        cid_var = torch.autograd.Variable(cid, requires_grad=False).cuda(async=True)
-        bbox_var = torch.autograd.Variable(bbox, requires_grad=False).cuda(async=True)
-        image_var = torch.autograd.Variable(images, requires_grad=False).cuda(async=False)
-
-        # compute output
-        output = model.forward(image_var, ['fc8ext', 'bbox_reg'])
-
-        # Compute losses.
-        cls_loss = cls_criterion(output['fc8ext'], cid_var)
-        bbox_loss = bbox_criterion(output['bbox_reg'], bbox_var)
-        total_loss = cls_loss + bbox_loss
-        # total_loss = bbox_loss
-
-        # measure metrics and record loss
-        cls_losses.update(cls_loss.data[0], image_var.size(0))
-        bbox_losses.update(bbox_loss.data[0], image_var.size(0))
-
-        # compute gradient and do SGD step
-        optimizer.zero_grad()
-        total_loss.backward()
-        optimizer.step()
-
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
-
-        if i % args.print_freq == 0:
-            print('Epoch: [{0}][{1}/{2}]\t'
-                  'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
-                  'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
-                  'Classification loss {cls_loss.val:.4f} ({cls_loss.avg:.4f})\t'
-                  'Bounding box regression loss {bbox_loss.val:.4f} ({bbox_loss.avg:.4f})'.format(
-                epoch, i, len(train_loader), batch_time=batch_time,
-                data_time=data_time, cls_loss=cls_losses, bbox_loss=bbox_losses))
-
-        if i % args.vis_freq == 0:
-            for c in range(images.shape[1]):
-                images[:, c, ...] = images[:, c, ...] * INPUT_STD[c] + INPUT_MEAN[c]
-            sample_list = [images[b, ...] for b in range(images.shape[0])]
-            logger.image_summary('training/cls_samples', sample_list, epoch * len(train_loader) + i)
-
-        logger.scalar_summary('training/cls_losses', cls_loss.data[0], epoch * len(train_loader) + i)
-        logger.scalar_summary('training/cls_bbox_losses', bbox_loss.data[0], epoch * len(train_loader) + i)
-
-
-def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, optimizer, epoch, logger, vis):
+def train_smoothness(train_loader, model, optimizer, epoch, smoothness_criterion, bbox_criterion, cls_criterion,
+                     logger):
     batch_time = AverageMeter()
     data_time = AverageMeter()
     smoothness_losses = AverageMeter()
@@ -252,7 +180,7 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
     model.train()
 
     end = time.time()
-    for i, (target, pos_sample, neg_sample, bbox, pos_bbox) in enumerate(train_loader):
+    for i, (target, cid, pos_sample, neg_sample, bbox, pos_bbox) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
@@ -260,9 +188,10 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
         pos_var = torch.autograd.Variable(pos_sample, requires_grad=False).cuda(async=True)
         neg_var = torch.autograd.Variable(neg_sample, requires_grad=False).cuda(async=True)
         bbox_var = torch.autograd.Variable(bbox, requires_grad=False).cuda(async=True)
+        cid_var = torch.autograd.Variable(cid, requires_grad=False).cuda(async=True)
 
         # compute output
-        target_output = model.forward(target_var, ['relu5', 'bbox_reg'])
+        target_output = model.forward(target_var, ['relu5', 'bbox_reg', 'fc8ext'])
         pos_output = model.forward(pos_var, ['relu5'])['relu5']
         neg_output = model.forward(neg_var, ['relu5'])['relu5']
 
@@ -270,7 +199,8 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
         pos_loss, neg_loss = smoothness_criterion(target_output['relu5'], pos_output, neg_output, bbox, pos_bbox)
         smoothness_loss = pos_loss + neg_loss
         bbox_loss = bbox_criterion(target_output['bbox_reg'], bbox_var)
-        total_loss = smoothness_loss + bbox_loss
+        cls_loss = cls_criterion(target_output['fc8ext'], cid_var)
+        total_loss = smoothness_loss + bbox_loss + cls_loss
 
         # measure metrics and record loss
         smoothness_losses.update(smoothness_loss.data[0], target_var.size(0))
@@ -295,8 +225,8 @@ def train_smoothness(train_loader, model, smoothness_criterion, bbox_criterion, 
                   'Negative loss {neg_loss.val:.4f} ({neg_loss.avg:.4f})\t'
                   'Overall loss {smoothness_loss.val:.4f} ({smoothness_loss.avg:.4f})\t'
                   'Bounding box regression loss {bbox_loss.val:.4f} ({bbox_loss.avg:.4f})'.format(
-                epoch, i, len(train_loader), batch_time=batch_time, data_time=data_time,
-                pos_loss=pos_losses, neg_loss=neg_losses, smoothness_loss=smoothness_losses, bbox_loss=bbox_losses))
+                    epoch, i, len(train_loader), batch_time=batch_time, data_time=data_time,
+                    pos_loss=pos_losses, neg_loss=neg_losses, smoothness_loss=smoothness_losses, bbox_loss=bbox_losses))
 
         if i % args.vis_freq == 0:
             concat_imgs = torch.zeros((target.shape[0], target.shape[1], target.shape[2], target.shape[3] * 3 + 4))

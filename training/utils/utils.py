@@ -1,4 +1,64 @@
 import xml.etree.ElementTree
+import urllib.request
+import os
+import subprocess
+import requests
+
+
+def download_img(url: str, folder: str, name: str) -> bool:
+    with open(os.path.join(folder, name + '.JPEG'), 'wb') as handle:
+        response = requests.get(url, stream=True)
+        if not response.ok:
+            print(response)
+            return False
+        for block in response.iter_content(1024):
+            if not block:
+                break
+            handle.write(block)
+    return True
+
+
+def extract_archive(archive_path: str, output_dir: str = None, async: bool = False):
+    if output_dir is None:
+        args = ['tar', '-xf', archive_path, '-C', output_dir]
+        if async:
+            subprocess.Popen(args)
+        else:
+            subprocess.call(args)
+    else:
+        args = ['tar', '-xf', archive_path]
+        if async:
+            subprocess.Popen(args)
+        else:
+            subprocess.call(args)
+
+
+def read_web_file(url: str) -> str:
+    response = urllib.request.urlopen(url)
+    data = response.read()  # a `bytes` object
+    text = data.decode('utf-8')  # a `str`; this step can't be used if data is binary
+    return text
+
+
+def download_web_file(url: str, path: str) -> None:
+    urllib.request.urlretrieve(url, path)
+
+
+def load_synsets() -> (list, dict):
+    synset_list_url = 'http://www.image-net.org/api/text/imagenet.bbox.obtain_synset_list'
+    synset_list_file = os.path.join(os.path.dirname(os.path.realpath(__file__)))
+
+    if not os.path.isfile(synset_list_file):
+        download_web_file(synset_list_url, synset_list_file)
+
+    list = []
+    wnid2id = {}
+    with open(synset_list_file, 'r') as f:
+        for idx, line in enumerate(f):
+            wnid = line.rstrip()
+            list.append(wnid)
+            wnid2id[wnid] = idx
+    return list, wnid2id
 
 
 def bb_intersection_over_union(boxA, boxB):
@@ -25,19 +85,14 @@ def bb_intersection_over_union(boxA, boxB):
     return iou
 
 
-def _get_unique_element(xml_block, name):
+def _get_unique_element(xml_block: xml.etree.ElementTree.Element, name: str) -> xml.etree.ElementTree.Element:
     """
     Get a unique element from a XML block by name.
-    Args:
-        xml_block (xml.etree.ElementTree.Element): XML block.
-        name (str): element name.
-    Returns:
-        xml.etree.ElementTree.Element: the corresponding element block.
     """
     return xml_block.iter(name).__next__()
 
 
-def read_annotation(annotation_fn):
+def read_annotation(annotation_fn: str) -> dict:
     e = xml.etree.ElementTree.parse(annotation_fn).getroot()
 
     size_block = _get_unique_element(e, 'size')
@@ -54,6 +109,14 @@ def read_annotation(annotation_fn):
         xmin = int(_get_unique_element(bndbox_block, 'xmin').text)
         ymax = int(_get_unique_element(bndbox_block, 'ymax').text)
         ymin = int(_get_unique_element(bndbox_block, 'ymin').text)
-        objects.append({'name': name, 'xmax': xmax, 'xmin': xmin, 'ymax': ymax, 'ymin': ymin})
+        objects.append({'name': name,
+                        'xmax': xmax,
+                        'xmin': xmin,
+                        'ymax': ymax,
+                        'ymin': ymin})
 
-    return {'width': width, 'height': height, 'folder': folder, 'filename': filename, 'objects': objects}
+    return {'width':    width,
+            'height': height,
+            'folder':   folder,
+            'filename': filename,
+            'objects':  objects}

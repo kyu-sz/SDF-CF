@@ -2,9 +2,9 @@ import torch
 import torch.nn as nn
 
 
-class MaskedSmoothnessLoss(nn.Module):
+class SmoothnessLoss(nn.Module):
     def __init__(self, diff_bound=0.0016):
-        super(MaskedSmoothnessLoss, self).__init__()
+        super(SmoothnessLoss, self).__init__()
         self._diff_bound = diff_bound
 
     def forward(self, target, pos_sample, neg_sample, target_bbox, pos_bbox):

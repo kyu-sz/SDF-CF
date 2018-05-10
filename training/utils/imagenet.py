@@ -1,109 +1,54 @@
-import os
-import os.path as osp
-import subprocess
-import asyncio
-import threading
+import math
 
+import PIL.ImageOps as ImageOps
 import numpy as np
+import os.path as osp
 import torch
 import torch.utils.data as data
-import torchvision.transforms.functional as F
+import torchvision.transforms as transforms
 
-from .img_loader import default_loader
-from .utils import read_annotation
-import requests
-
-
-def _check_or_extract(dir, pack_suffix, output_suffix='', async=True, force_extract=False):
-    if not osp.exists(dir) or force_extract:
-        if osp.exists(dir + pack_suffix):
-            os.makedirs(dir, exist_ok=True)
-            args = ['tar', '-xf', dir + pack_suffix, '-C', osp.join(dir, output_suffix)]
-            if async:
-                subprocess.Popen(args)
-                print('Extracting', dir + pack_suffix, 'to', osp.join(dir, output_suffix))
-            else:
-                subprocess.call(args)
-                print('Extracted', dir + pack_suffix, 'to', osp.join(dir, output_suffix))
-        else:
-            print('Warning: cannot find', dir + pack_suffix)
+from utils.img_loader import default_loader
+from utils.utils import *
 
 
 class ImageNetDataset(data.Dataset):
-    def __init__(self, data_dir, transform=None, loader=default_loader):
+    def __init__(self, data_dir: str, transform=None, loader=default_loader):
+        # Load synsets.
+        self.synsets, self.wnid2id = load_synsets()
+        self.num_classes = len(self.synsets)
+
+        self._transform = transform if transform is not None else transforms.ToTensor()
+        self._loader = loader
         self._data_dir = data_dir
         print('Loading ImageNet from {}...'.format(self._data_dir))
-        self._transform = transform
-        self._loader = loader
 
         self._annotation_dir = data_dir + '/Annotation'
-        _check_or_extract(self._annotation_dir, '.tar.gz')
         self._image_dir = data_dir + '/Image'
-        _check_or_extract(self._image_dir, '.tar')
 
-        annotations = sorted(os.listdir(self._annotation_dir))
-        image_data = os.listdir(self._image_dir)
+        # Download latest annotations from ImageNet.
+        print('Downloading latest annotations from ImageNet...')
+        anno_urls_api = "http://www.image-net.org/api/download/imagenet.bbox.synset?wnid="
+        for synset in self.synsets:
+            anno_arch_path = os.path.join(self._annotation_dir, synset + '.tar.gz')
+            download_web_file(anno_urls_api + synset, anno_arch_path)
+            extract_archive(anno_arch_path, self.annotation_dir(synset))
 
-        self.idx2cls = {}
-        self.num_classes = 0
-        wnid_set = set()
-        self._num_samples_per_class = []
-        # read classes that are in the widely-used 1000 classes.
-        with open(osp.dirname(osp.realpath(__file__)) + '/imagenet_cls.txt', 'r') as f:
-            for line in f:
-                wnid, cid, name = line.split()
-                cid = int(cid) - 1
-                wnid_set.add(wnid)
-                self.idx2cls[cid] = wnid
-                self.num_classes += 1
-                _check_or_extract(self.annotation_dir(wnid), '.tar.gz', '../..', async=False)
-                _check_or_extract(self.image_dir(wnid), '.tar', async=True)
-                self._num_samples_per_class.append(
-                        len([fn for fn in os.listdir(self.annotation_dir(wnid)) if fn.endswith('xml')])
-                        if osp.exists(self.annotation_dir(wnid)) else 0)
+        # Check new images from ImageNet.
+        img_urls_api = "http://www.image-net.org/api/text/imagenet.synset.geturls?wnid="
+        for synset in self.synsets:
+            urls = read_web_file(img_urls_api + synset).split()
+            if len(urls) != len([fn for fn in os.listdir(self.image_dir(synset)) if fn.endswith('JPEG')]):
+                print('Downloading latest images of {}...'.format(synset))
+                for idx, url in enumerate(urls):
+                    download_img(url, self.image_dir(synset), '{}_{}'.format(synset, idx))
 
-        # find classes that are newly available in the ImageNet dataset, other than the 1000 classes.
-        for wnid in annotations:
-            wnid = wnid[:-7] if wnid.endswith('.tar.gz') else wnid
-            if wnid not in wnid_set and (wnid in image_data or wnid + '.tar' in image_data):
-                self.idx2cls[self.num_classes] = wnid
-                self.num_classes += 1
-                wnid_set.add(wnid)
-                _check_or_extract(osp.join(self._annotation_dir, wnid), '.tar.gz', '../..', async=False)
-                _check_or_extract(osp.join(self._image_dir, wnid), '.tar', async=True)
-                self._num_samples_per_class.append(
-                        len([fn for fn in os.listdir(self.annotation_dir(wnid)) if fn.endswith('xml')])
-                        if osp.exists(self.annotation_dir(wnid)) else 0)
+        # Count number of annotated samples in each synset.
+        self.synset_sizes = [0] * self.num_classes
+        for idx, synset in enumerate(self.synsets):
+            self.synset_sizes[idx] = len(os.listdir(self.annotation_dir(synset)))
 
-        self._idx_end = np.cumsum(self._num_samples_per_class)
-
-        self._url_dict = {}
-        self._url_dict_reading_thread = threading.Thread(target=self._read_urls,
-                                                         name="URLs Reading Thread")
-        self._url_dict_reading_thread.start()
-
-        print('Found {} classes!'.format(self.num_classes))
-
-    def _read_urls(self):
-        for url_fn in ['fall11_urls.txt', 'spring10_urls.txt', 'winter11_urls.txt', 'urls.txt']:
-            with open(osp.join(self._data_dir, url_fn), 'r', errors='ignore') as f:
-                for line in f:
-                    name, url = line.split()[:2]
-                    self._url_dict[name] = url
-
-    def _download_img(self, folder, name):
-        self._url_dict_reading_thread.join()
-
-        with open(osp.join(self.image_dir(folder), name + '.JPEG'), 'wb') as handle:
-            response = requests.get(self._url_dict[name], stream=True)
-            if not response.ok:
-                print(response)
-                return False
-            for block in response.iter_content(1024):
-                if not block:
-                    break
-                handle.write(block)
-        return True
+        # Count the ending index of samples in each synset in the global indexing.
+        self._idx_end = np.cumsum(self.synset_sizes)
 
     def image_dir(self, wnid=''):
         return osp.join(self._image_dir, wnid)
@@ -112,11 +57,11 @@ class ImageNetDataset(data.Dataset):
         return osp.join(self._annotation_dir, wnid)
 
     def __getitem__(self, index):
-        # Read the annotation for the frame.
-        cid = np.searchsorted(self._idx_end, index + 1)
-        wnid = self.idx2cls[cid]
-        idx_in_class = index - (self._idx_end[cid - 1] if cid >= 1 else 0)
-        annotation_fn = sorted(os.listdir(self.annotation_dir(wnid)))[idx_in_class]
+        # Read the annotation file for the frame.
+        cid = np.searchsorted(self._idx_end, index + 1)  # Class ID of the indexed sample.
+        wnid = self.synsets[cid]  # WordNet ID of the class.
+        idx_in_class = index - (self._idx_end[cid - 1] if cid >= 1 else 0)  # Index of the sample in the class.
+        annotation_fn = sorted(os.listdir(self.annotation_dir(wnid)))[idx_in_class]  # Retrieve the annotation file.
         img_annotation = read_annotation(osp.join(self.annotation_dir(wnid), annotation_fn))
 
         # Find the annotation for the object.
@@ -128,54 +73,69 @@ class ImageNetDataset(data.Dataset):
         if obj_annotation is None:
             return self[np.random.randint(len(self))]
 
-        # Load image. Download it if the image file does not exist.
+        # Load image.
         img_path = osp.join(self.image_dir(img_annotation['folder']), img_annotation['filename'] + '.JPEG')
-        if not os.path.exists(img_path):
-            if img_annotation['filename'] + '.JPEG' not in self._url_dict \
-                    or not self._download_img(img_annotation['folder'], img_annotation['filename']):
-                return self[np.random.randint(len(self))]
         try:
             img = self._loader(img_path)
         except OSError:
-            if img_annotation['filename'] + '.JPEG' not in self._url_dict \
-                    or not self._download_img(img_annotation['folder'], img_annotation['filename']):
-                return self[np.random.randint(len(self))]
-            img = self._loader(img_path)
+            return self[np.random.randint(len(self))]
 
-        # Crop the square patch of the object.
-        scale = np.random.uniform(0.7, 1.1)
+        # Randomly flip the image.
+        if np.random.randint(0, 2):
+            img = ImageOps.mirror(img)
+            obj_annotation['xmin'] = img_annotation['width'] - obj_annotation['xmax']
+            obj_annotation['xmax'] = img_annotation['width'] - obj_annotation['xmin']
+            obj_annotation['ymin'] = img_annotation['height'] - obj_annotation['ymax']
+            obj_annotation['ymax'] = img_annotation['height'] - obj_annotation['ymin']
 
-        x_mid = (obj_annotation['xmin'] + obj_annotation['xmax']) * 0.5
-        y_mid = (obj_annotation['ymin'] + obj_annotation['ymax']) * 0.5
-        patch_size = max(min(max(np.ceil(obj_annotation['xmax'] - obj_annotation['xmin'],
-                                         obj_annotation['ymax'] - obj_annotation['ymin']) * scale),
-                             min(img_annotation['width'], img_annotation['height'])),
-                         7)
-        xmin = min(img_annotation['width'] - patch_size,
-                   max(0, int(x_mid - patch_size * (0.5 + np.random.uniform(-0.1, 0.1)))))
-        ymin = min(img_annotation['height'] - patch_size,
-                   max(0, int(y_mid - patch_size * (0.5 + np.random.uniform(-0.1, 0.1)))))
-        xmax = xmin + patch_size
-        ymax = ymin + patch_size
-        img = img.crop((xmin, ymin, xmax, ymax))
+        # Crop a randomly scaled square patch of the object.
+        scale_factor = np.random.uniform(0.7, 1.1)
+        x_mid = (obj_annotation['xmin'] + obj_annotation['xmax']) * 0.5  # Middle of x-axis.
+        y_mid = (obj_annotation['ymin'] + obj_annotation['ymax']) * 0.5  # Middle of y-axis.
+        bbox_width = obj_annotation['xmax'] - obj_annotation['xmin']
+        bbox_height = obj_annotation['ymax'] - obj_annotation['ymin']
+        shorter_side_len = min(img_annotation['width'], img_annotation['height'])
+        target_patch_size = max(min(math.ceil(max(bbox_width, bbox_height) * scale_factor), shorter_side_len), 7)
+        target_xmin = min(img_annotation['width'] - target_patch_size,
+                          max(0, int(x_mid - target_patch_size * (0.5 + np.random.uniform(-0.1, 0.1)))))
+        target_ymin = min(img_annotation['height'] - target_patch_size,
+                          max(0, int(y_mid - target_patch_size * (0.5 + np.random.uniform(-0.1, 0.1)))))
+        target_xmax = target_xmin + target_patch_size
+        target_ymax = target_ymin + target_patch_size
+        target = img.crop((target_xmin, target_ymin, target_xmax, target_ymax))
 
         # Calculate bounding box regression target.
-        bbox_x = (obj_annotation['xmin'] + obj_annotation['xmax'] - xmin - xmax) * 0.5 / patch_size
-        bbox_y = (obj_annotation['ymin'] + obj_annotation['ymax'] - ymin - ymax) * 0.5 / patch_size
-        bbox_width = (obj_annotation['xmax'] - obj_annotation['xmin']) / patch_size - 1
-        bbox_height = (obj_annotation['ymax'] - obj_annotation['ymin']) / patch_size - 1
+        bbox_x = (obj_annotation['xmin'] + obj_annotation['xmax'] - target_xmin - target_xmax) * 0.5 / target_patch_size
+        bbox_y = (obj_annotation['ymin'] + obj_annotation['ymax'] - target_ymin - target_ymax) * 0.5 / target_patch_size
+        bbox_width = (obj_annotation['xmax'] - obj_annotation['xmin']) / target_patch_size - 1
+        bbox_height = (obj_annotation['ymax'] - obj_annotation['ymin']) / target_patch_size - 1
 
-        if np.random.uniform(-1, 1) > 0:
-            img = F.hflip(img)
-            bbox_x = -bbox_x
-            bbox_y = -bbox_y
+        # Create a positive sample for smoothness training by rotating the target.
+        pos_sample = img.rotate(np.random.randint(-15, 15), center=(x_mid, y_mid)) \
+            .crop((target_xmin, target_ymin, target_xmax, target_ymax))
 
-        return self._transform(img), \
-               torch.LongTensor([[int(cid)]]), \
-               torch.FloatTensor([bbox_x, bbox_y, bbox_width, bbox_height])
+        # Create a negative sample for smoothness training by randomly scaling and shifting the bounding box.
+        neg_patch_size = int(target_patch_size
+                             * np.random.uniform(max(0.5, 7. / target_patch_size),
+                                                 min(1.5, float(shorter_side_len) / target_patch_size)))
+        neg_patch_xmin = min(max(target_xmin + target_patch_size * np.random.uniform(-0.4, 0.4), 0),
+                             img_annotation['width'] - neg_patch_size)
+        neg_patch_ymin = min(max(target_ymin + target_patch_size * np.random.uniform(-0.4, 0.4), 0),
+                             img_annotation['height'] - neg_patch_size)
+        neg_patch_xmax = neg_patch_xmin + neg_patch_size
+        neg_patch_ymax = neg_patch_ymin + neg_patch_size
+        neg_sample = img.crop((neg_patch_xmin, neg_patch_ymin, neg_patch_xmax, neg_patch_ymax))
+
+        # noinspection PyCallingNonCallable
+        return self._transform(target), \
+               self._transform(pos_sample), \
+               self._transform(neg_sample), \
+               torch.tensor(cid), \
+               torch.tensor([bbox_x, bbox_y, bbox_width, bbox_height]), \
+               torch.tensor([bbox_x, bbox_y, bbox_width, bbox_height])
 
     def __len__(self):
-        return self._idx_end[-1]
+        return sum(self.synset_sizes)
 
 
 if __name__ == "__main__":
