@@ -7,8 +7,8 @@ import torch
 import torch.utils.data as data
 import torchvision.transforms as transforms
 
-from utils.img_loader import default_loader
-from utils.utils import *
+from .img_loader import default_loader
+from .utils import *
 
 
 class ImageNetDataset(data.Dataset):
@@ -24,23 +24,6 @@ class ImageNetDataset(data.Dataset):
 
         self._annotation_dir = data_dir + '/Annotation'
         self._image_dir = data_dir + '/Image'
-
-        # Download latest annotations from ImageNet.
-        print('Downloading latest annotations from ImageNet...')
-        anno_urls_api = "http://www.image-net.org/api/download/imagenet.bbox.synset?wnid="
-        for synset in self.synsets:
-            anno_arch_path = os.path.join(self._annotation_dir, synset + '.tar.gz')
-            download_web_file(anno_urls_api + synset, anno_arch_path)
-            extract_archive(anno_arch_path, self.annotation_dir(synset))
-
-        # Check new images from ImageNet.
-        img_urls_api = "http://www.image-net.org/api/text/imagenet.synset.geturls?wnid="
-        for synset in self.synsets:
-            urls = read_web_file(img_urls_api + synset).split()
-            if len(urls) != len([fn for fn in os.listdir(self.image_dir(synset)) if fn.endswith('JPEG')]):
-                print('Downloading latest images of {}...'.format(synset))
-                for idx, url in enumerate(urls):
-                    download_img(url, self.image_dir(synset), '{}_{}'.format(synset, idx))
 
         # Count number of annotated samples in each synset.
         self.synset_sizes = [0] * self.num_classes
@@ -75,6 +58,14 @@ class ImageNetDataset(data.Dataset):
 
         # Load image.
         img_path = osp.join(self.image_dir(img_annotation['folder']), img_annotation['filename'] + '.JPEG')
+        if not os.path.isfile(img_path):
+            # Need to download the image.
+            mapping_api = "http://www.image-net.org/api/text/imagenet.synset.geturls.getmapping?wnid="
+            text = read_web_file(mapping_api + wnid)
+            for line in text:
+                name, url = line.split()
+                if name == img_annotation['filename']:
+                    download_img(url, self.image_dir(img_annotation['folder']), img_annotation['filename'] + '.JPEG')
         try:
             img = self._loader(img_path)
         except OSError:
@@ -138,7 +129,36 @@ class ImageNetDataset(data.Dataset):
         return sum(self.synset_sizes)
 
 
+def update_imagenet_annotations(imagenet_dir):
+    if not os.path.isdir(imagenet_dir):
+        if os.path.isfile(imagenet_dir):
+            print('{} is a file!'.format(imagenet_dir))
+            return
+        else:
+            os.makedirs(imagenet_dir)
+    print('Downloading latest annotations from ImageNet...')
+    anno_urls_api = "http://www.image-net.org/api/download/imagenet.bbox.synset?wnid="
+    synsets, _ = load_synsets()
+    tmp_arch_storage = '/tmp/imagenet_update'
+    os.makedirs(tmp_arch_storage, exist_ok=True)
+    for idx, synset in enumerate(synsets):
+        print('Processing {}/{}'.format(idx, len(synsets)))
+        anno_arch_path = os.path.join(tmp_arch_storage, synset + '.tar.gz')
+        download_web_file(anno_urls_api + synset, anno_arch_path)
+        extract_archive(anno_arch_path, imagenet_dir)
+        os.remove(anno_arch_path)
+    os.rmdir(tmp_arch_storage)
+
+
+def main():
+    # Download latest annotations from ImageNet.
+    import sys
+    if len(sys.argv) < 1:
+        print('Usage: {} <ImageNet Directory>'.format(sys.argv[0]))
+        return
+    imagenet_dir = sys.argv[1]
+    update_imagenet_annotations(imagenet_dir)
+
+
 if __name__ == "__main__":
-    dataset = ImageNetDataset(
-            osp.join(osp.dirname(osp.realpath(__file__)), '..', '..', 'datasets', 'ImageNet'))
-    print('Loaded {} images from {} classes in ImageNet'.format(len(dataset), dataset.num_classes))
+    main()

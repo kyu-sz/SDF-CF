@@ -3,6 +3,7 @@ import urllib.request
 import os
 import subprocess
 import requests
+import pycurl
 
 
 def download_img(url: str, folder: str, name: str) -> bool:
@@ -19,7 +20,7 @@ def download_img(url: str, folder: str, name: str) -> bool:
 
 
 def extract_archive(archive_path: str, output_dir: str = None, async: bool = False):
-    if output_dir is None:
+    if output_dir is not None:
         args = ['tar', '-xf', archive_path, '-C', output_dir]
         if async:
             subprocess.Popen(args)
@@ -41,12 +42,25 @@ def read_web_file(url: str) -> str:
 
 
 def download_web_file(url: str, path: str) -> None:
-    urllib.request.urlretrieve(url, path)
+    r = requests.get(url, allow_redirects=True)
+    # Handle redirecting API.
+    while r.apparent_encoding == 'ascii' and 'url=' in r.text:
+        domain_end = url.find('/', url.find('//') + 2)
+        if domain_end < 0:
+            domain_end = len(url)
+        domain = url[:domain_end]
+        resource_start = r.text.find('url=') + 4
+        resource_end = r.text.find('"', resource_start)
+        resource_url = r.text[resource_start:resource_end]
+        redirected_url = domain + resource_url
+        r = requests.get(redirected_url, allow_redirects=True)
+    with open(path, 'wb') as f:
+        f.write(r.content)
 
 
 def load_synsets() -> (list, dict):
     synset_list_url = 'http://www.image-net.org/api/text/imagenet.bbox.obtain_synset_list'
-    synset_list_file = os.path.join(os.path.dirname(os.path.realpath(__file__)))
+    synset_list_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'synset_list.txt')
 
     if not os.path.isfile(synset_list_file):
         download_web_file(synset_list_url, synset_list_file)
