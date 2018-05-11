@@ -141,12 +141,31 @@ def update_imagenet_annotations(imagenet_dir):
     synsets, _ = load_synsets()
     tmp_arch_storage = '/tmp/imagenet_update'
     os.makedirs(tmp_arch_storage, exist_ok=True)
-    for idx, synset in enumerate(synsets):
-        print('Processing {}/{}'.format(idx, len(synsets)))
-        anno_arch_path = os.path.join(tmp_arch_storage, synset + '.tar.gz')
-        download_web_file(anno_urls_api + synset, anno_arch_path)
-        extract_archive(anno_arch_path, imagenet_dir)
-        os.remove(anno_arch_path)
+    import threading
+    import queue
+    threads = queue.Queue()
+    finished_cnt = 0
+    num_workers = 32
+    for synset in synsets:
+        def download(synset):
+            anno_arch_path = os.path.join(tmp_arch_storage, synset + '.tar.gz')
+            download_web_file(anno_urls_api + synset, anno_arch_path)
+            ret = extract_archive(anno_arch_path, imagenet_dir)
+            if not ret:
+                print('Error when processing archive of {}!'.format(synset))
+            os.remove(anno_arch_path)
+        t = threading.Thread(target=download, name=synset, args=[synset])
+        t.start()
+        threads.put(t)
+        if threads.qsize() >= num_workers:
+            threads.get().join()
+            finished_cnt += 1
+            if finished_cnt % num_workers == 0:
+                print('Processed {}/{}'.format(finished_cnt, len(synsets)))
+    while not threads.empty():
+        threads.get().join()
+        finished_cnt += 1
+        print('Processed {}/{}'.format(finished_cnt, len(synsets)))
     os.rmdir(tmp_arch_storage)
 
 

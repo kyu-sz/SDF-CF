@@ -2,8 +2,8 @@ import xml.etree.ElementTree
 import urllib.request
 import os
 import subprocess
+
 import requests
-import pycurl
 
 
 def download_img(url: str, folder: str, name: str) -> bool:
@@ -19,19 +19,23 @@ def download_img(url: str, folder: str, name: str) -> bool:
     return True
 
 
-def extract_archive(archive_path: str, output_dir: str = None, async: bool = False):
+def extract_archive(archive_path: str, output_dir: str = None, async: bool = False) -> bool:
     if output_dir is not None:
         args = ['tar', '-xf', archive_path, '-C', output_dir]
         if async:
             subprocess.Popen(args)
+            return True
         else:
-            subprocess.call(args)
+            ret = subprocess.call(args)
+            return not ret
     else:
         args = ['tar', '-xf', archive_path]
         if async:
             subprocess.Popen(args)
+            return True
         else:
-            subprocess.call(args)
+            ret = subprocess.call(args)
+            return not ret
 
 
 def read_web_file(url: str) -> str:
@@ -130,7 +134,7 @@ def read_annotation(annotation_fn: str) -> dict:
                         'ymin': ymin})
 
     return {'width':    width,
-            'height': height,
+            'height':   height,
             'folder':   folder,
             'filename': filename,
             'objects':  objects}
