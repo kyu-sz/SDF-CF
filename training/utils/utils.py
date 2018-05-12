@@ -8,9 +8,13 @@ import requests
 
 def download_img(url: str, folder: str, name: str) -> bool:
     with open(os.path.join(folder, name + '.JPEG'), 'wb') as handle:
-        response = requests.get(url, stream=True)
+        try:
+            response = requests.get(url, stream=True, timeout=60)
+        except IOError as e:
+            print('Failed to download image from {}: {}'.format(url, e))
+            return False
         if not response.ok:
-            print(response)
+            print('Failed to download image from {}: {}'.format(url, response))
             return False
         for block in response.iter_content(1024):
             if not block:

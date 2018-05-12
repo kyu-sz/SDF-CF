@@ -53,7 +53,7 @@ parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
 parser.add_argument('--world-size', default=1, type=int,
                     help='number of distributed processes')
-parser.add_argument('--gpu', default="0,1,2,3", type=str,
+parser.add_argument('--gpus', default="0,1,2,3", type=str,
                     help='GPUs for training')
 parser.add_argument('--vis', action='store_true')
 
@@ -73,7 +73,7 @@ def main():
     args.distributed = args.world_size > 1
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
 
     # load data
     normalize = transforms.Normalize(mean=INPUT_MEAN,
@@ -83,9 +83,9 @@ def main():
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
         normalize])
+    imagenet = ImageNetDataset(args.imagenet_dir, img_transform)
     train_loader = torch.utils.data.DataLoader(
-            ImageNetVideoDataset(osp.join(args.imagenet_video_dir, 'ILSVRC'), 'train', img_transform)
-            + ImageNetDataset(args.imagenet_dir, img_transform),
+            ImageNetVideoDataset(osp.join(args.imagenet_video_dir, 'ILSVRC'), 'train', img_transform) + imagenet,
             batch_size=args.batch_size, shuffle=(train_sampler is None),
             num_workers=args.workers, pin_memory=True, sampler=train_sampler)
     val_loader = torch.utils.data.DataLoader(
@@ -94,15 +94,14 @@ def main():
             num_workers=args.workers, pin_memory=True)
 
     # create model
-    model = VGG_M_2048(model_path='models/imagenet_vgg_m_2048.mat')
+    model = VGG_M_2048(num_classes=imagenet.num_classes, model_path='models/imagenet_vgg_m_2048.mat')
     print(model)
-
-    model = torch.nn.DataParallel(model)
-    model.cuda()
+    model.to(torch.device('cuda'))  # Move to GPU.
+    model = torch.nn.DataParallel(model)  # Enable multi-GPU training.
 
     smoothness_criterion = SmoothnessLoss().cuda()
     bbox_criterion = nn.MSELoss().cuda()
-    cls_criterion = nn.CrossEntropyLoss().cuda()
+    cls_criterion = nn.BCEWithLogitsLoss().cuda()
     optimizer = torch.optim.SGD(model.parameters(), args.lr,
                                 momentum=args.momentum,
                                 weight_decay=args.weight_decay)
@@ -129,9 +128,9 @@ def main():
     for epoch in range(args.start_epoch, args.epochs):
         adjust_learning_rate(optimizer, epoch)
 
-        train_smoothness(train_loader, model, optimizer, epoch,
-                         smoothness_criterion, bbox_criterion, cls_criterion,
-                         logger)
+        train(train_loader, model, optimizer, epoch,
+              smoothness_criterion, bbox_criterion, cls_criterion,
+              logger)
         save_checkpoint({
             'epoch':      epoch,
             'state_dict': model.state_dict(),
@@ -167,8 +166,14 @@ def to_np(x):
     return x.data.cpu().numpy()
 
 
-def train_smoothness(train_loader, model, optimizer, epoch, smoothness_criterion, bbox_criterion, cls_criterion,
-                     logger):
+def train(train_loader: torch.utils.data.DataLoader,
+          model: nn.Module,
+          optimizer: torch.optim.SGD,
+          epoch: int,
+          smoothness_criterion: nn.Module,
+          bbox_criterion: nn.Module,
+          cls_criterion: nn.Module,
+          logger: Logger) -> None:
     batch_time = AverageMeter()
     data_time = AverageMeter()
     smoothness_losses = AverageMeter()
@@ -176,37 +181,42 @@ def train_smoothness(train_loader, model, optimizer, epoch, smoothness_criterion
     neg_losses = AverageMeter()
     bbox_losses = AverageMeter()
 
-    # switch to train mode
+    # Switch to train mode
     model.train()
 
+    # Get CUDA device.
+    device = torch.device("cuda")
+
     end = time.time()
-    for i, (target, cid, pos_sample, neg_sample, bbox, pos_bbox) in enumerate(train_loader):
+    for i, (target, pos_sample, neg_sample, cid, bbox, pos_bbox) in enumerate(train_loader):
         # measure data loading time
         data_time.update(time.time() - end)
 
-        target_var = torch.autograd.Variable(target, requires_grad=False).cuda(async=True)
-        pos_var = torch.autograd.Variable(pos_sample, requires_grad=False).cuda(async=True)
-        neg_var = torch.autograd.Variable(neg_sample, requires_grad=False).cuda(async=True)
-        bbox_var = torch.autograd.Variable(bbox, requires_grad=False).cuda(async=True)
-        cid_var = torch.autograd.Variable(cid, requires_grad=False).cuda(async=True)
+        # Move the tensors to GPU.
+        target = target.cuda(non_blocking=True)
+        pos_sample = pos_sample.cuda(non_blocking=True)
+        neg_sample = neg_sample.cuda(non_blocking=True)
+        cid = cid.float().cuda(non_blocking=True)
+        bbox = bbox.cuda(non_blocking=True)
+        pos_bbox = pos_bbox.cuda(non_blocking=True)
 
         # compute output
-        target_output = model.forward(target_var, ['relu5', 'bbox_reg', 'fc8ext'])
-        pos_output = model.forward(pos_var, ['relu5'])['relu5']
-        neg_output = model.forward(neg_var, ['relu5'])['relu5']
+        target_output = model.forward(target, ['relu5', 'bbox_reg', 'fc8ext'])
+        pos_output = model.forward(pos_sample, ['relu5'])['relu5']
+        neg_output = model.forward(neg_sample, ['relu5'])['relu5']
 
         # Compute losses.
         pos_loss, neg_loss = smoothness_criterion(target_output['relu5'], pos_output, neg_output, bbox, pos_bbox)
         smoothness_loss = pos_loss + neg_loss
-        bbox_loss = bbox_criterion(target_output['bbox_reg'], bbox_var)
-        cls_loss = cls_criterion(target_output['fc8ext'], cid_var)
+        bbox_loss = bbox_criterion(target_output['bbox_reg'], bbox.view(target_output['bbox_reg'].shape))
+        cls_loss = cls_criterion(target_output['fc8ext'], cid.view(target_output['fc8ext'].shape))
         total_loss = smoothness_loss + bbox_loss + cls_loss
 
         # measure metrics and record loss
-        smoothness_losses.update(smoothness_loss.data[0], target_var.size(0))
-        pos_losses.update(pos_loss.data[0], target_var.size(0))
-        neg_losses.update(neg_loss.data[0], target_var.size(0))
-        bbox_losses.update(bbox_loss.data[0], target_var.size(0))
+        smoothness_losses.update(smoothness_loss.item(), target.size(0))
+        pos_losses.update(pos_loss.item(), target.size(0))
+        neg_losses.update(neg_loss.item(), target.size(0))
+        bbox_losses.update(bbox_loss.item(), target.size(0))
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -241,10 +251,11 @@ def train_smoothness(train_loader, model, optimizer, epoch, smoothness_criterion
 
             logger.image_summary('training/smoothness_samples', sample_list, epoch * len(train_loader) + i)
 
-        logger.scalar_summary('training/smoothness_losses', smoothness_loss.data[0], epoch * len(train_loader) + i)
-        logger.scalar_summary('training/pos_losses', pos_loss.data[0], epoch * len(train_loader) + i)
-        logger.scalar_summary('training/neg_losses', neg_loss.data[0], epoch * len(train_loader) + i)
-        logger.scalar_summary('training/bbox_losses', bbox_loss.data[0], epoch * len(train_loader) + i)
+        logger.scalar_summary('training/smoothness_losses', smoothness_loss.item(), epoch * len(train_loader) + i)
+        logger.scalar_summary('training/pos_losses', pos_loss.item(), epoch * len(train_loader) + i)
+        logger.scalar_summary('training/neg_losses', neg_loss.item(), epoch * len(train_loader) + i)
+        logger.scalar_summary('training/cls_losses', cls_loss.item(), epoch * len(train_loader) + i)
+        logger.scalar_summary('training/bbox_losses', bbox_loss.item(), epoch * len(train_loader) + i)
 
 
 def validate(val_loader, model, smoothness_criterion, bbox_criterion, epoch, logger):
@@ -257,31 +268,34 @@ def validate(val_loader, model, smoothness_criterion, bbox_criterion, epoch, log
     model.eval()
 
     end = time.time()
-    for i, (target, pos_sample, neg_sample, bbox, pos_bbox) in enumerate(val_loader):
-        target_var = torch.autograd.Variable(target, requires_grad=True).cuda(async=True)
-        pos_var = torch.autograd.Variable(pos_sample, requires_grad=True).cuda(async=True)
-        neg_var = torch.autograd.Variable(neg_sample, requires_grad=True).cuda(async=True)
-        bbox_var = torch.autograd.Variable(bbox, requires_grad=False).cuda(async=True)
+    for i, (target, pos_sample, neg_sample, _, bbox, pos_bbox) in enumerate(val_loader):
+        # Move the tensors to GPU.
+        target = target.cuda(non_blocking=True)
+        pos_sample = pos_sample.cuda(non_blocking=True)
+        neg_sample = neg_sample.cuda(non_blocking=True)
+        bbox = bbox.cuda(non_blocking=True)
+        pos_bbox = pos_bbox.cuda(non_blocking=True)
 
-        target_output = model.forward(target_var, ['relu5', 'bbox_reg'])
-        pos_output = model.forward(pos_var, ['relu5'])['relu5']
-        neg_output = model.forward(neg_var, ['relu5'])['relu5']
+        target_output = model.forward(target, ['relu5', 'bbox_reg'])
+        pos_output = model.forward(pos_sample, ['relu5'])['relu5']
+        neg_output = model.forward(neg_sample, ['relu5'])['relu5']
 
         pos_loss, neg_loss = smoothness_criterion(target_output['relu5'], pos_output, neg_output, bbox, pos_bbox)
-        bbox_loss = bbox_criterion(target_output['bbox_reg'], bbox_var)
+        bbox_loss = bbox_criterion(target_output['bbox_reg'], bbox.view(target_output['bbox_reg'].shape))
 
         # measure metrics and record loss
-        pos_losses.update(pos_loss.data[0], target_var.size(0))
-        neg_losses.update(neg_loss.data[0], target_var.size(0))
-        bbox_losses.update(bbox_loss.data[0], target_var.size(0))
+        pos_losses.update(pos_loss.item(), target.size(0))
+        neg_losses.update(neg_loss.item(), target.size(0))
+        bbox_losses.update(bbox_loss.item(), target.size(0))
 
         # measure elapsed time
         batch_time.update(time.time() - end)
         end = time.time()
 
-    logger.scalar_summary('validation/smoothness_pos_losses', pos_losses.avg, epoch * len(val_loader) + i)
-    logger.scalar_summary('validation/smoothness_neg_losses', neg_losses.avg, epoch * len(val_loader) + i)
-    logger.scalar_summary('validation/bbox_losses', bbox_losses.avg, epoch * len(val_loader) + i)
+    logger.scalar_summary('validation/smoothness_pos_losses', pos_losses.avg, epoch)
+    logger.scalar_summary('validation/smoothness_neg_losses', neg_losses.avg, epoch)
+    logger.scalar_summary('validation/cls_losses', bbox_losses.avg, epoch)
+    logger.scalar_summary('validation/bbox_losses', bbox_losses.avg, epoch)
 
     print(' * Smoothness losses {smoothness_losses.avg:.3f}'
           .format(smoothness_losses=(pos_losses.avg + neg_losses.avg)))
@@ -301,7 +315,10 @@ class AverageMeter(object):
     """Computes and stores the average and current value"""
 
     def __init__(self):
-        self.reset()
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
 
     def reset(self):
         self.val = 0

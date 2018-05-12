@@ -44,8 +44,8 @@ class SmoothnessLoss(nn.Module):
         intersect_width = intersect_xmax - intersect_xmin
         intersect_height = intersect_ymax - intersect_ymin
 
-        pos_loss = torch.autograd.Variable(torch.zeros(1), requires_grad=False).cuda(async=True)
-        neg_loss = torch.autograd.Variable(torch.zeros(1), requires_grad=False).cuda(async=True)
+        pos_loss = torch.zeros(1).cuda(non_blocking=True)
+        neg_loss = torch.zeros(1).cuda(non_blocking=True)
 
         weight_sum = torch.autograd.Variable(torch.zeros(1), requires_grad=False).cuda(async=True)
         for i in range(target.shape[0]):

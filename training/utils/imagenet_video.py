@@ -4,13 +4,24 @@ import torch.utils.data as data
 from utils.img_loader import default_loader
 import torchvision.transforms as transforms
 import PIL.ImageOps as ImageOps
-from utils.utils import read_annotation, load_synsets
+from utils.utils import *
 
 
 class ImageNetVideoDataset(data.Dataset):
     def __init__(self, data_dir, subset='train', transform=None, loader=default_loader):
         # Load synsets.
         self.synsets, self.wnid2id = load_synsets()
+        self.num_classes = len(self.synsets)
+
+        # Load WordNet Hierarchy.
+        self._synset_parent = {}
+        for line in read_web_file('http://www.image-net.org/archive/wordnet.is_a.txt').split('\n'):
+            if len(line):
+                parent, child = line.split()
+                self._synset_parent[child] = parent
+
+        # Cache class labels for synset.
+        self._class_label_cache = {}
 
         self._data_dir = data_dir
         self._subset = subset
@@ -22,6 +33,41 @@ class ImageNetVideoDataset(data.Dataset):
 
         self._transform = transform if transform is not None else transforms.ToTensor()
         self._loader = loader
+
+    def _resolve_class_label(self, synset: str) -> list:
+        class_labels = [0] * self.num_classes
+        if synset in self.synsets:  # If the synset is labeled in ImageNet.
+            class_labels[self.wnid2id[synset]] = 1
+        else:  # The synset is not labeled, but its descendants or ancestors might be.
+            # Check ancestor first.
+            if synset in self._synset_parent:
+                ancestor = self._synset_parent[synset]
+                while ancestor not in class_labels:
+                    if ancestor in self._synset_parent:
+                        ancestor = self._synset_parent[ancestor]
+                    else:
+                        ancestor = None
+                        break
+                if ancestor is not None:
+                    class_labels[self.wnid2id[ancestor]] = 1
+            else:
+                # Recursively check descendants.
+                # The sample should contain multiple class labels.
+                def check_descendants(_synset):
+                    structure_api = 'http://www.image-net.org/api/text/wordnet.structure.hyponym?wnid='
+                    structure = read_web_file(structure_api + _synset).split()
+                    for line in structure:
+                        if line.startswith('-'):  # Child synsets in the structure file starts with '-'.
+                            child = line[1:]
+                            if child in self.synsets:
+                                class_labels[self.wnid2id[line[1:]]] = 1
+                            else:
+                                check_descendants(child)
+
+                check_descendants(synset)
+        # Cache the class labels for this synset.
+        self._class_label_cache = class_labels
+        return class_labels
 
     def __getitem__(self, index):
         cur_frame = self._frames[index]
@@ -37,18 +83,31 @@ class ImageNetVideoDataset(data.Dataset):
         if len(prev_annotation['objects']) == 0:
             return self.__getitem__((index + 1) % len(self))
 
-        if len(cur_annotation['objects']) > 1 or len(prev_annotation['objects']) > 1:
-            print('Multiple objects labeled in the ImageNet Video dataset! This program need modification!')
-            exit(-1)
+        # Randomly pick an object that appears in both the current frame and the previous frame.
+        valid_objs = []
+        obj_map = {}
+        for idx, obj in enumerate(cur_annotation['objects']):
+            obj_map[obj['name']] = idx
+        for idx, obj in enumerate(prev_annotation['objects']):
+            if obj['name'] in obj_map:
+                valid_objs.append((obj_map[obj['name']], idx))
+        cur_obj_idx, prev_obj_idx = valid_objs[np.random.randint(0, len(valid_objs))]
+
+        # Resolve class labels.
+        name = cur_annotation['objects'][cur_obj_idx]['name']
+        if name in self._class_label_cache:
+            class_labels = self._class_label_cache[name]
+        else:
+            class_labels = self._resolve_class_label(name)
 
         # Scale factor of the interest region to the bounding box.
         scale_factor = np.random.uniform(0.7, 1.1) if self._subset == 'train' else 1
 
         # Crop the patch of the target in the current frame.
-        xmin = cur_annotation['objects'][0]['xmin']
-        xmax = cur_annotation['objects'][0]['xmax']
-        ymin = cur_annotation['objects'][0]['ymin']
-        ymax = cur_annotation['objects'][0]['ymax']
+        xmin = cur_annotation['objects'][cur_obj_idx]['xmin']
+        xmax = cur_annotation['objects'][cur_obj_idx]['xmax']
+        ymin = cur_annotation['objects'][cur_obj_idx]['ymin']
+        ymax = cur_annotation['objects'][cur_obj_idx]['ymax']
         x_mid = (xmin + xmax) * 0.5
         y_mid = (ymin + ymax) * 0.5
         target_patch_size = min(max(xmax - xmin, ymax - ymin) * scale_factor,
@@ -68,10 +127,10 @@ class ImageNetVideoDataset(data.Dataset):
 
         # Use the target from the previous frame as the positive sample for smoothness training.
         prev_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + prev_frame + '.JPEG')
-        prev_xmin = prev_annotation['objects'][0]['xmin']
-        prev_xmax = prev_annotation['objects'][0]['xmax']
-        prev_ymin = prev_annotation['objects'][0]['ymin']
-        prev_ymax = prev_annotation['objects'][0]['ymax']
+        prev_xmin = prev_annotation['objects'][prev_obj_idx]['xmin']
+        prev_xmax = prev_annotation['objects'][prev_obj_idx]['xmax']
+        prev_ymin = prev_annotation['objects'][prev_obj_idx]['ymin']
+        prev_ymax = prev_annotation['objects'][prev_obj_idx]['ymax']
         pos_x_mid = (prev_xmin + prev_xmax) * 0.5
         pos_y_mid = (prev_ymin + prev_ymax) * 0.5
         pos_patch_size = min(max(prev_xmax - prev_xmin, prev_ymax - prev_ymin) * scale_factor,
@@ -124,7 +183,7 @@ class ImageNetVideoDataset(data.Dataset):
         return self._transform(cur_target), \
                self._transform(pos_sample), \
                self._transform(neg_sample), \
-               torch.tensor(self.wnid2id[cur_annotation['name']]), \
+               torch.tensor(class_labels), \
                torch.tensor([bbox_x, bbox_y, bbox_width, bbox_height]), \
                torch.tensor([pos_bbox_x, pos_bbox_y, pos_bbox_width, pos_bbox_height])
 

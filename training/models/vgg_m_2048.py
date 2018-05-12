@@ -9,7 +9,7 @@ import torch.utils.model_zoo as model_zoo
 
 
 class VGG_M_2048(nn.Module):
-    def __init__(self, model_path=None, model_url=None):
+    def __init__(self, num_classes=1000, model_path=None, model_url=None):
         super(VGG_M_2048, self).__init__()
         self.features = nn.Sequential(OrderedDict([
             ('conv1', nn.Conv2d(3, 96, kernel_size=7, stride=2)),
@@ -33,16 +33,16 @@ class VGG_M_2048(nn.Module):
             ('relu7', nn.ReLU())]))
 
         self.classifier = nn.Sequential(OrderedDict([
-            ('fc8ext', nn.Conv2d(2048, 3624, kernel_size=1, stride=1, padding=0)),
+            ('fc8ext', nn.Conv2d(2048, num_classes, kernel_size=1, stride=1, padding=0)),
             ('prob', nn.Softmax(dim=1))]))
 
         self.bbox_reg = nn.Conv2d(2048, 4, kernel_size=1, stride=1, padding=0)
 
         # Initialize the FC layers with all 0 parameters to prevent messing up the other parameters.
-        nn.init.constant(self.bbox_reg.weight, 0)
-        nn.init.constant(self.bbox_reg.bias, 0)
-        nn.init.constant(self.classifier.fc8ext.weight, 0)
-        nn.init.constant(self.classifier.fc8ext.bias, 0)
+        nn.init.constant_(self.bbox_reg.weight, 0)
+        nn.init.constant_(self.bbox_reg.bias, 0)
+        nn.init.constant_(self.classifier.fc8ext.weight, 0)
+        nn.init.constant_(self.classifier.fc8ext.bias, 0)
 
         if model_path is not None:
             self.load(model_path)

@@ -28,7 +28,10 @@ class ImageNetDataset(data.Dataset):
         # Count number of annotated samples in each synset.
         self.synset_sizes = [0] * self.num_classes
         for idx, synset in enumerate(self.synsets):
-            self.synset_sizes[idx] = len(os.listdir(self.annotation_dir(synset)))
+            if os.path.isdir(self.annotation_dir(synset)):
+                self.synset_sizes[idx] = len(os.listdir(self.annotation_dir(synset)))
+            else:
+                self.synset_sizes[idx] = 0
 
         # Count the ending index of samples in each synset in the global indexing.
         self._idx_end = np.cumsum(self.synset_sizes)
@@ -41,11 +44,15 @@ class ImageNetDataset(data.Dataset):
 
     def __getitem__(self, index):
         # Read the annotation file for the frame.
-        cid = np.searchsorted(self._idx_end, index + 1)  # Class ID of the indexed sample.
+        cid = int(np.searchsorted(self._idx_end, index + 1))  # Class ID of the indexed sample.
         wnid = self.synsets[cid]  # WordNet ID of the class.
         idx_in_class = index - (self._idx_end[cid - 1] if cid >= 1 else 0)  # Index of the sample in the class.
         annotation_fn = sorted(os.listdir(self.annotation_dir(wnid)))[idx_in_class]  # Retrieve the annotation file.
-        img_annotation = read_annotation(osp.join(self.annotation_dir(wnid), annotation_fn))
+        img_annotation = read_annotation(osp.join(self.annotation_dir(wnid), annotation_fn))  # Read the annotation.
+
+        # Construct 0-1 class label vector.
+        class_labels = [0] * self.num_classes
+        class_labels[cid] = 1
 
         # Find the annotation for the object.
         obj_annotation = None
@@ -56,20 +63,28 @@ class ImageNetDataset(data.Dataset):
         if obj_annotation is None:
             return self[np.random.randint(len(self))]
 
-        # Load image.
+        # Load the image.
         img_path = osp.join(self.image_dir(img_annotation['folder']), img_annotation['filename'] + '.JPEG')
-        if not os.path.isfile(img_path):
-            # Need to download the image.
-            mapping_api = "http://www.image-net.org/api/text/imagenet.synset.geturls.getmapping?wnid="
-            text = read_web_file(mapping_api + wnid)
-            for line in text:
-                name, url = line.split()
-                if name == img_annotation['filename']:
-                    download_img(url, self.image_dir(img_annotation['folder']), img_annotation['filename'] + '.JPEG')
-        try:
+        try:  # Try loading it locally first.
             img = self._loader(img_path)
         except OSError:
-            return self[np.random.randint(len(self))]
+            # The image does not exist locally or is problematic. Try downloading it from web.
+            mapping_api = "http://www.image-net.org/api/text/imagenet.synset.geturls.getmapping?wnid="
+            for line in read_web_file(mapping_api + wnid).split('\n'):
+                elements = line.split()
+                if len(elements) == 2:
+                    name, url = elements
+                    if name == img_annotation['filename']:
+                        ret = download_img(url,
+                                           self.image_dir(img_annotation['folder']),
+                                           img_annotation['filename'])
+                        if not ret:  # The image is not available on the web.
+                            return self[np.random.randint(len(self))]  # Randomly pick another sample.
+                        break
+            try:
+                img = self._loader(img_path)
+            except OSError:  # The image is not available on the web.
+                return self[np.random.randint(len(self))]  # Randomly pick another sample.
 
         # Randomly flip the image.
         if np.random.randint(0, 2):
@@ -117,11 +132,10 @@ class ImageNetDataset(data.Dataset):
         neg_patch_ymax = neg_patch_ymin + neg_patch_size
         neg_sample = img.crop((neg_patch_xmin, neg_patch_ymin, neg_patch_xmax, neg_patch_ymax))
 
-        # noinspection PyCallingNonCallable
         return self._transform(target), \
                self._transform(pos_sample), \
                self._transform(neg_sample), \
-               torch.tensor(cid), \
+               torch.tensor(class_labels), \
                torch.tensor([bbox_x, bbox_y, bbox_width, bbox_height]), \
                torch.tensor([bbox_x, bbox_y, bbox_width, bbox_height])
 
@@ -129,54 +143,61 @@ class ImageNetDataset(data.Dataset):
         return sum(self.synset_sizes)
 
 
-def update_imagenet_annotations(imagenet_dir):
+def update_imagenet_annotations(imagenet_dir: str, synset: str = None):
     if not os.path.isdir(imagenet_dir):
         if os.path.isfile(imagenet_dir):
             print('{} is a file!'.format(imagenet_dir))
             return
         else:
             os.makedirs(imagenet_dir)
-    print('Downloading latest annotations from ImageNet...')
+
     anno_urls_api = "http://www.image-net.org/api/download/imagenet.bbox.synset?wnid="
     synsets, _ = load_synsets()
     tmp_arch_storage = '/tmp/imagenet_update'
     os.makedirs(tmp_arch_storage, exist_ok=True)
-    import threading
-    import queue
-    threads = queue.Queue()
-    finished_cnt = 0
-    num_workers = 32
-    for synset in synsets:
-        def download(synset):
-            anno_arch_path = os.path.join(tmp_arch_storage, synset + '.tar.gz')
-            download_web_file(anno_urls_api + synset, anno_arch_path)
-            ret = extract_archive(anno_arch_path, imagenet_dir)
-            if not ret:
-                print('Error when processing archive of {}!'.format(synset))
-            os.remove(anno_arch_path)
-        t = threading.Thread(target=download, name=synset, args=[synset])
-        t.start()
-        threads.put(t)
-        if threads.qsize() >= num_workers:
+
+    def download(synset):
+        anno_arch_path = os.path.join(tmp_arch_storage, synset + '.tar.gz')
+        download_web_file(anno_urls_api + synset, anno_arch_path)
+        ret = extract_archive(anno_arch_path, imagenet_dir)
+        if not ret:
+            print('Error when processing archive of {}!'.format(synset))
+        os.remove(anno_arch_path)
+
+    if synset is None:
+        print('Downloading latest annotations from ImageNet for all synsets...')
+        import threading
+        import queue
+        threads = queue.Queue()
+        finished_cnt = 0
+        num_workers = 32
+        for synset in synsets:
+            t = threading.Thread(target=download, name=synset, args=[synset])
+            t.start()
+            threads.put(t)
+            if threads.qsize() >= num_workers:
+                threads.get().join()
+                finished_cnt += 1
+                if finished_cnt % num_workers == 0:
+                    print('Processed {}/{}'.format(finished_cnt, len(synsets)))
+        while not threads.empty():
             threads.get().join()
             finished_cnt += 1
-            if finished_cnt % num_workers == 0:
-                print('Processed {}/{}'.format(finished_cnt, len(synsets)))
-    while not threads.empty():
-        threads.get().join()
-        finished_cnt += 1
-        print('Processed {}/{}'.format(finished_cnt, len(synsets)))
+            print('Processed {}/{}'.format(finished_cnt, len(synsets)))
+    else:
+        print('Downloading latest annotations from ImageNet for synset {}...'.format(synset))
+        download(synset)
+
     os.rmdir(tmp_arch_storage)
 
 
 def main():
     # Download latest annotations from ImageNet.
     import sys
-    if len(sys.argv) < 1:
-        print('Usage: {} <ImageNet Directory>'.format(sys.argv[0]))
+    if len(sys.argv) < 2:
+        print('Usage: {} <ImageNet Directory> [<synset>]'.format(sys.argv[0]))
         return
-    imagenet_dir = sys.argv[1]
-    update_imagenet_annotations(imagenet_dir)
+    update_imagenet_annotations(sys.argv[1], sys.argv[2] if len(sys.argv) >= 3 else None)
 
 
 if __name__ == "__main__":
