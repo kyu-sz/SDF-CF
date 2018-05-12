@@ -1,18 +1,22 @@
 import math
+from typing import Callable
 
-import PIL.ImageOps as ImageOps
 import numpy as np
 import os.path as osp
 import torch
 import torch.utils.data as data
 import torchvision.transforms as transforms
+from PIL import Image, ImageOps
 
 from .img_loader import default_loader
 from .utils import *
 
 
 class ImageNetDataset(data.Dataset):
-    def __init__(self, data_dir: str, transform=None, loader=default_loader):
+    def __init__(self,
+                 data_dir: str,
+                 transform=None,
+                 loader: Callable[[str], Image.Image] = default_loader):
         # Load synsets.
         self.synsets, self.wnid2id = load_synsets()
         self.num_classes = len(self.synsets)
@@ -36,13 +40,13 @@ class ImageNetDataset(data.Dataset):
         # Count the ending index of samples in each synset in the global indexing.
         self._idx_end = np.cumsum(self.synset_sizes)
 
-    def image_dir(self, wnid=''):
+    def image_dir(self, wnid: str = ''):
         return osp.join(self._image_dir, wnid)
 
-    def annotation_dir(self, wnid=''):
+    def annotation_dir(self, wnid: str = ''):
         return osp.join(self._annotation_dir, wnid)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int):
         # Read the annotation file for the frame.
         cid = int(np.searchsorted(self._idx_end, index + 1))  # Class ID of the indexed sample.
         wnid = self.synsets[cid]  # WordNet ID of the class.

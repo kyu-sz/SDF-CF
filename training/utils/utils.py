@@ -7,14 +7,16 @@ import requests
 
 
 def download_img(url: str, folder: str, name: str) -> bool:
+    if not os.path.isdir(folder):
+        os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, name + '.JPEG'), 'wb') as handle:
         try:
-            response = requests.get(url, stream=True, timeout=60)
+            response = requests.get(url, stream=True, timeout=10)
         except IOError as e:
-            print('Failed to download image from {}: {}'.format(url, e))
+            # print('Failed to download image from {}: {}'.format(url, e))
             return False
         if not response.ok:
-            print('Failed to download image from {}: {}'.format(url, response))
+            # print('Failed to download image from {}: {}'.format(url, response))
             return False
         for block in response.iter_content(1024):
             if not block:

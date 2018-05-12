@@ -8,7 +8,7 @@ def pil_loader(path: str) -> Image.Image:
         return img.convert('RGB')
 
 
-def accimage_loader(path) -> Image.Image:
+def accimage_loader(path: str) -> Image.Image:
     try:
         import accimage
         return accimage.Image(path)
@@ -17,7 +17,7 @@ def accimage_loader(path) -> Image.Image:
         return pil_loader(path)
 
 
-def default_loader(path) -> Image.Image:
+def default_loader(path: str) -> Image.Image:
     from torchvision import get_image_backend
     if get_image_backend() == 'accimage':
         return accimage_loader(path)

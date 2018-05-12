@@ -1,14 +1,20 @@
+from typing import Callable
+
 import numpy as np
 import torch
 import torch.utils.data as data
 from utils.img_loader import default_loader
 import torchvision.transforms as transforms
-import PIL.ImageOps as ImageOps
+from PIL import Image, ImageOps
 from utils.utils import *
 
 
 class ImageNetVideoDataset(data.Dataset):
-    def __init__(self, data_dir, subset='train', transform=None, loader=default_loader):
+    def __init__(self,
+                 data_dir: str,
+                 subset: str = 'train',
+                 transform=None,
+                 loader: Callable[[str], Image.Image] = default_loader):
         # Load synsets.
         self.synsets, self.wnid2id = load_synsets()
         self.num_classes = len(self.synsets)
@@ -76,12 +82,8 @@ class ImageNetVideoDataset(data.Dataset):
         # Read annotation of the target in the current frame and the previous frame.
         cur_annotation_fn = self._data_dir + '/Annotations/VID/' + self._subset + '/' + cur_frame + '.xml'
         cur_annotation = read_annotation(cur_annotation_fn)
-        if len(cur_annotation['objects']) == 0:
-            return self.__getitem__((index + 1) % len(self))
         prev_annotation_fn = self._data_dir + '/Annotations/VID/' + self._subset + '/' + prev_frame + '.xml'
         prev_annotation = read_annotation(prev_annotation_fn)
-        if len(prev_annotation['objects']) == 0:
-            return self.__getitem__((index + 1) % len(self))
 
         # Randomly pick an object that appears in both the current frame and the previous frame.
         valid_objs = []
@@ -91,6 +93,8 @@ class ImageNetVideoDataset(data.Dataset):
         for idx, obj in enumerate(prev_annotation['objects']):
             if obj['name'] in obj_map:
                 valid_objs.append((obj_map[obj['name']], idx))
+        if len(valid_objs) < 1:
+            return self[np.random.randint(len(self))]  # Randomly pick another sample.
         cur_obj_idx, prev_obj_idx = valid_objs[np.random.randint(0, len(valid_objs))]
 
         # Resolve class labels.
