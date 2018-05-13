@@ -1,9 +1,9 @@
-import xml.etree.ElementTree
-import urllib.request
 import os
 import subprocess
+import xml.etree.ElementTree
 
 import requests
+import urllib3
 
 
 def download_img(url: str, folder: str, name: str) -> bool:
@@ -11,9 +11,12 @@ def download_img(url: str, folder: str, name: str) -> bool:
         os.makedirs(folder, exist_ok=True)
     with open(os.path.join(folder, name + '.JPEG'), 'wb') as handle:
         try:
-            response = requests.get(url, stream=True, timeout=10)
+            response = requests.get(url, allow_redirects=False, stream=True, timeout=1)
         except IOError as e:
             # print('Failed to download image from {}: {}'.format(url, e))
+            return False
+        except urllib3.exceptions.LocationValueError as e:
+            print("Error when downloading image from {}:".format(url), e)
             return False
         if not response.ok:
             # print('Failed to download image from {}: {}'.format(url, response))
@@ -45,10 +48,8 @@ def extract_archive(archive_path: str, output_dir: str = None, async: bool = Fal
 
 
 def read_web_file(url: str) -> str:
-    response = urllib.request.urlopen(url)
-    data = response.read()  # a `bytes` object
-    text = data.decode('utf-8')  # a `str`; this step can't be used if data is binary
-    return text
+    r = requests.get(url, allow_redirects=True)
+    return r.text
 
 
 def download_web_file(url: str, path: str) -> None:

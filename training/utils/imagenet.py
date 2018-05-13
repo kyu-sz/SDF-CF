@@ -49,10 +49,10 @@ class ImageNetDataset(data.Dataset):
     def __getitem__(self, index: int):
         # Read the annotation file for the frame.
         cid = int(np.searchsorted(self._idx_end, index + 1))  # Class ID of the indexed sample.
-        wnid = self.synsets[cid]  # WordNet ID of the class.
+        synset = self.synsets[cid]  # WordNet ID of the class.
         idx_in_class = index - (self._idx_end[cid - 1] if cid >= 1 else 0)  # Index of the sample in the class.
-        annotation_fn = sorted(os.listdir(self.annotation_dir(wnid)))[idx_in_class]  # Retrieve the annotation file.
-        img_annotation = read_annotation(osp.join(self.annotation_dir(wnid), annotation_fn))  # Read the annotation.
+        annotation_fn = sorted(os.listdir(self.annotation_dir(synset)))[idx_in_class]  # Retrieve the annotation file.
+        img_annotation = read_annotation(osp.join(self.annotation_dir(synset), annotation_fn))  # Read the annotation.
 
         # Construct 0-1 class label vector.
         class_labels = [0] * self.num_classes
@@ -61,7 +61,7 @@ class ImageNetDataset(data.Dataset):
         # Find the annotation for the object.
         obj_annotation = None
         for obj in img_annotation['objects']:
-            if obj['name'] == wnid:
+            if obj['name'] == synset:
                 obj_annotation = obj
                 break
         if obj_annotation is None:
@@ -74,7 +74,12 @@ class ImageNetDataset(data.Dataset):
         except OSError:
             # The image does not exist locally or is problematic. Try downloading it from web.
             mapping_api = "http://www.image-net.org/api/text/imagenet.synset.geturls.getmapping?wnid="
-            for line in read_web_file(mapping_api + wnid).split('\n'):
+            try:
+                mappings = read_web_file(mapping_api + synset).split('\n')
+            except IOError:
+                print('Mapping API broken for synset {}!'.format(synset))
+                return self[np.random.randint(len(self))]  # Randomly pick another sample.
+            for line in mappings:
                 elements = line.split()
                 if len(elements) == 2:
                     name, url = elements
@@ -121,7 +126,8 @@ class ImageNetDataset(data.Dataset):
         bbox_height = (obj_annotation['ymax'] - obj_annotation['ymin']) / target_patch_size - 1
 
         # Create a positive sample for smoothness training by rotating the target.
-        pos_sample = img.rotate(np.random.randint(-15, 15), center=(x_mid, y_mid)) \
+        # TODO: Check implementation of rotation.
+        pos_sample = img.rotate(np.random.randint(-15, 16), center=(x_mid, y_mid)) \
             .crop((target_xmin, target_ymin, target_xmax, target_ymax))
 
         # Create a negative sample for smoothness training by randomly scaling and shifting the bounding box.
@@ -147,7 +153,7 @@ class ImageNetDataset(data.Dataset):
         return sum(self.synset_sizes)
 
 
-def update_imagenet_annotations(imagenet_dir: str, synset: str = None):
+def update_imagenet_annotations(imagenet_dir: str, synset: str = None) -> None:
     if not os.path.isdir(imagenet_dir):
         if os.path.isfile(imagenet_dir):
             print('{} is a file!'.format(imagenet_dir))
@@ -160,9 +166,12 @@ def update_imagenet_annotations(imagenet_dir: str, synset: str = None):
     tmp_arch_storage = '/tmp/imagenet_update'
     os.makedirs(tmp_arch_storage, exist_ok=True)
 
-    def download(synset):
+    def download(synset: str) -> None:
         anno_arch_path = os.path.join(tmp_arch_storage, synset + '.tar.gz')
-        download_web_file(anno_urls_api + synset, anno_arch_path)
+        try:
+            download_web_file(anno_urls_api + synset, anno_arch_path)
+        except IOError:
+            return
         ret = extract_archive(anno_arch_path, imagenet_dir)
         if not ret:
             print('Error when processing archive of {}!'.format(synset))
@@ -195,7 +204,7 @@ def update_imagenet_annotations(imagenet_dir: str, synset: str = None):
     os.rmdir(tmp_arch_storage)
 
 
-def main():
+def main() -> None:
     # Download latest annotations from ImageNet.
     import sys
     if len(sys.argv) < 2:

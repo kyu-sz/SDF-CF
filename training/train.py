@@ -85,9 +85,7 @@ def main():
         normalize])
     imagenet = ImageNetDataset(args.imagenet_dir, img_transform)
     train_loader = torch.utils.data.DataLoader(
-            # ImageNetVideoDataset(osp.join(args.imagenet_video_dir, 'ILSVRC'), 'train', img_transform)
-            # +
-            imagenet,
+            ImageNetVideoDataset(osp.join(args.imagenet_video_dir, 'ILSVRC'), 'train', img_transform) + imagenet,
             batch_size=args.batch_size, shuffle=(train_sampler is None),
             num_workers=args.workers, pin_memory=True, sampler=train_sampler)
     val_loader = torch.utils.data.DataLoader(
@@ -185,9 +183,6 @@ def train(train_loader: torch.utils.data.DataLoader,
 
     # Switch to train mode
     model.train()
-
-    # Get CUDA device.
-    device = torch.device("cuda")
 
     end = time.time()
     for i, (target, pos_sample, neg_sample, cid, bbox, pos_bbox) in enumerate(train_loader):

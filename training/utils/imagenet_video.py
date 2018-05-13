@@ -61,7 +61,11 @@ class ImageNetVideoDataset(data.Dataset):
                 # The sample should contain multiple class labels.
                 def check_descendants(_synset):
                     structure_api = 'http://www.image-net.org/api/text/wordnet.structure.hyponym?wnid='
-                    structure = read_web_file(structure_api + _synset).split()
+                    try:
+                        structure = read_web_file(structure_api + _synset).split()
+                    except IOError:
+                        print('Mapping API broken for synset {}!'.format(_synset))
+                        return
                     for line in structure:
                         if line.startswith('-'):  # Child synsets in the structure file starts with '-'.
                             child = line[1:]
