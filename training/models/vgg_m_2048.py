@@ -9,8 +9,35 @@ import torch.utils.model_zoo as model_zoo
 
 
 class VGG_M_2048(nn.Module):
-    def __init__(self, num_classes=1000, model_path=None, model_url=None):
+    INPUT_MEAN = [123.6591, 116.7663, 103.9318]
+    INPUT_STD = [1, 1, 1]
+
+    def __init__(self,
+                 num_classes: int = 1000,
+                 model_path: str = None,
+                 model_url: str = None,
+                 class_names: list = None,
+                 class_desc: list = None):
+        """
+        Construct VGG-M-2048 model with specified number of prediction classes.
+        :param num_classes: Number of prediction classes.
+        :param model_path: Path of weights of model stored locally.
+        :param model_url: URL of weights of model available via the web.
+        :param class_names: Name of prediction classes.
+        :param class_desc: Description of prediction classes.
+        """
         super(VGG_M_2048, self).__init__()
+
+        self.class_names = None
+        self.class_desc = None
+        if class_names is not None and class_desc is not None:
+            if num_classes != len(class_names) or num_classes != len(class_desc):
+                print('Warning: mismatch between number of classes and number of class names or descriptions: {}:{}:{}'
+                      .format(num_classes, len(class_names), len(class_desc)))
+            else:
+                self.class_names = class_names
+                self.class_desc = class_desc
+
         self.features = nn.Sequential(OrderedDict([
             ('conv1', nn.Conv2d(3, 96, kernel_size=7, stride=2)),
             ('relu1', nn.ReLU()),
@@ -72,14 +99,16 @@ class VGG_M_2048(nn.Module):
 
     def save(self, model_path):
         if model_path.endswith('mat'):
+            if self.class_names is None or self.class_desc is None:
+                raise RuntimeError('Class names and descriptions not available for model saving to Matlab!')
+
             model_dict = {'layers': [],
                           'meta':   {'inputs':        {'name': 'data',
                                                        'size': [224, 224, 3, 10]},
-                                     # TODO: fill in class names and description here
-                                     'classes':       {'name':        {},
-                                                       'description': {}},
+                                     'classes':       {'name':        self.class_names,
+                                                       'description': self.class_desc},
                                      'normalization': {'imageSize':     [224, 224, 3, 10],
-                                                       # TODO: fill in the 'averageImage' field here
+                                                       'averageImage':  self.INPUT_MEAN,
                                                        'keepAspect':    1,
                                                        'boarder':       [32, 32],
                                                        'cropSize':      [0.875, 0.875],
@@ -96,7 +125,7 @@ class VGG_M_2048(nn.Module):
                                           float(module.kernel_size[1]),
                                           float(module.in_channels),
                                           float(module.out_channels)],
-                             'pad':      [0, 0, 0, 0],
+                             'pad':      [module.padding, module.padding, module.padding, module.padding],
                              'stride':   [float(module.stride[0]), float(module.stride[1])],
                              'dilation': [float(module.dilation[0]), float(module.dilation[1])]}
                 elif type(module) is nn.ReLU:
@@ -117,8 +146,7 @@ class VGG_M_2048(nn.Module):
                              'method':   'max',
                              'pool':     [float(module.kernel_size), float(module.kernel_size)],
                              'stride':   [float(module.stride), float(module.stride)],
-                             'pad':      [float(module.padding), float(module.padding),
-                                          float(module.padding), float(module.padding)],
+                             'pad':      [0, 1, 0, 1],
                              'weights':  [],
                              'precious': 0,
                              'opts':     []}

@@ -18,7 +18,7 @@ class ImageNetDataset(data.Dataset):
                  transform=None,
                  loader: Callable[[str], Image.Image] = default_loader):
         # Load synsets.
-        self.synsets, self.wnid2id = load_synsets()
+        self.synsets, self.synset_desc, self.wnid2id = load_synsets()
         self.num_classes = len(self.synsets)
 
         self._transform = transform if transform is not None else transforms.ToTensor()
@@ -104,7 +104,7 @@ class ImageNetDataset(data.Dataset):
             obj_annotation['ymax'] = img_annotation['height'] - obj_annotation['ymin']
 
         # Crop a randomly scaled square patch of the object.
-        scale_factor = np.random.uniform(0.7, 1.1)
+        scale_factor = np.random.uniform(0.75, 1.25)
         x_mid = (obj_annotation['xmin'] + obj_annotation['xmax']) * 0.5  # Middle of x-axis.
         y_mid = (obj_annotation['ymin'] + obj_annotation['ymax']) * 0.5  # Middle of y-axis.
         bbox_width = obj_annotation['xmax'] - obj_annotation['xmin']
@@ -112,9 +112,9 @@ class ImageNetDataset(data.Dataset):
         shorter_side_len = min(img_annotation['width'], img_annotation['height'])
         target_patch_size = max(min(math.ceil(max(bbox_width, bbox_height) * scale_factor), shorter_side_len), 7)
         target_xmin = min(img_annotation['width'] - target_patch_size,
-                          max(0, int(x_mid - target_patch_size * (0.5 + np.random.uniform(-0.1, 0.1)))))
+                          max(0, int(x_mid - target_patch_size * 0.5)))
         target_ymin = min(img_annotation['height'] - target_patch_size,
-                          max(0, int(y_mid - target_patch_size * (0.5 + np.random.uniform(-0.1, 0.1)))))
+                          max(0, int(y_mid - target_patch_size * 0.5)))
         target_xmax = target_xmin + target_patch_size
         target_ymax = target_ymin + target_patch_size
         target = img.crop((target_xmin, target_ymin, target_xmax, target_ymax))
@@ -126,17 +126,16 @@ class ImageNetDataset(data.Dataset):
         bbox_height = (obj_annotation['ymax'] - obj_annotation['ymin']) / target_patch_size - 1
 
         # Create a positive sample for smoothness training by rotating the target.
-        # TODO: Check implementation of rotation.
-        pos_sample = img.rotate(np.random.randint(-15, 16), center=(x_mid, y_mid)) \
+        pos_sample = img.rotate(np.random.uniform(-15, 15), center=(x_mid, y_mid)) \
             .crop((target_xmin, target_ymin, target_xmax, target_ymax))
 
         # Create a negative sample for smoothness training by randomly scaling and shifting the bounding box.
         neg_patch_size = int(target_patch_size
                              * np.random.uniform(max(0.5, 7. / target_patch_size),
                                                  min(1.5, float(shorter_side_len) / target_patch_size)))
-        neg_patch_xmin = min(max(target_xmin + target_patch_size * np.random.uniform(-0.4, 0.4), 0),
+        neg_patch_xmin = min(max(target_xmin + target_patch_size * np.random.uniform(-0.5, 0.5), 0),
                              img_annotation['width'] - neg_patch_size)
-        neg_patch_ymin = min(max(target_ymin + target_patch_size * np.random.uniform(-0.4, 0.4), 0),
+        neg_patch_ymin = min(max(target_ymin + target_patch_size * np.random.uniform(-0.5, 0.5), 0),
                              img_annotation['height'] - neg_patch_size)
         neg_patch_xmax = neg_patch_xmin + neg_patch_size
         neg_patch_ymax = neg_patch_ymin + neg_patch_size

@@ -1,31 +1,28 @@
 import os
 import subprocess
 import xml.etree.ElementTree
+from typing import *
 
 import requests
-import urllib3
 
 
 def download_img(url: str, folder: str, name: str) -> bool:
     if not os.path.isdir(folder):
         os.makedirs(folder, exist_ok=True)
-    with open(os.path.join(folder, name + '.JPEG'), 'wb') as handle:
-        try:
+    try:
+        with open(os.path.join(folder, name + '.JPEG'), 'wb') as handle:
             response = requests.get(url, allow_redirects=False, stream=True, timeout=1)
-        except IOError as e:
-            # print('Failed to download image from {}: {}'.format(url, e))
-            return False
-        except urllib3.exceptions.LocationValueError as e:
-            print("Error when downloading image from {}:".format(url), e)
-            return False
-        if not response.ok:
-            # print('Failed to download image from {}: {}'.format(url, response))
-            return False
-        for block in response.iter_content(1024):
-            if not block:
-                break
-            handle.write(block)
-    return True
+            if not response.ok:
+                # print('Failed to download image from {}: {}'.format(url, response))
+                return False
+            for block in response.iter_content(1024):
+                if not block:
+                    break
+                handle.write(block)
+        return True
+    except Exception as e:
+        # print('Failed to download image from {}: {}'.format(url, e))
+        return False
 
 
 def extract_archive(archive_path: str, output_dir: str = None, async: bool = False) -> bool:
@@ -69,7 +66,7 @@ def download_web_file(url: str, path: str) -> None:
         f.write(r.content)
 
 
-def load_synsets() -> (list, dict):
+def load_synsets() -> (List[str], List[str], Dict[str, int]):
     synset_list_url = 'http://www.image-net.org/api/text/imagenet.bbox.obtain_synset_list'
     synset_list_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'synset_list.txt')
 
@@ -79,11 +76,32 @@ def load_synsets() -> (list, dict):
     list = []
     wnid2id = {}
     with open(synset_list_file, 'r') as f:
-        for idx, line in enumerate(f):
+        for i, line in enumerate(f):
             wnid = line.rstrip()
             list.append(wnid)
-            wnid2id[wnid] = idx
-    return list, wnid2id
+            wnid2id[wnid] = i
+
+    desc_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'synset_desc.txt')
+    desc = [None] * len(list)
+    num_desc_loaded = 0
+    if os.path.isfile(desc_file):
+        with open(desc_file, 'r') as f:
+            for i, line in enumerate(f):
+                if len(line):
+                    desc[i] = line
+                    num_desc_loaded += 1
+
+    if num_desc_loaded != len(list):
+        # Retrieve synset descriptions.
+        print('Retrieving synset descriptions.')
+        word_api = 'http://www.image-net.org/api/text/wordnet.synset.getwords?wnid='
+        with open(desc_file, 'w') as f:
+            for i, synset in enumerate(list):
+                desc[i] = read_web_file(word_api + synset).replace('\r', '').rstrip('\n').replace('\n', ', ')
+                f.write(desc[i] + '\n')
+                print('{}/{}: {}'.format(i, len(list), desc[i]))
+
+    return list, desc, wnid2id
 
 
 def bb_intersection_over_union(boxA, boxB):
@@ -128,17 +146,16 @@ def read_annotation(annotation_fn: str) -> dict:
 
     objects = []
     for obj_block in e.iter('object'):
-        name = _get_unique_element(obj_block, 'name').text
-        bndbox_block = _get_unique_element(obj_block, 'bndbox')
-        xmax = int(_get_unique_element(bndbox_block, 'xmax').text)
-        xmin = int(_get_unique_element(bndbox_block, 'xmin').text)
-        ymax = int(_get_unique_element(bndbox_block, 'ymax').text)
-        ymin = int(_get_unique_element(bndbox_block, 'ymin').text)
-        objects.append({'name': name,
-                        'xmax': xmax,
-                        'xmin': xmin,
-                        'ymax': ymax,
-                        'ymin': ymin})
+        obj = {}
+        for element in iter(obj_block):
+            if element.tag == 'bndbox':
+                obj['xmax'] = int(_get_unique_element(element, 'xmax').text)
+                obj['xmin'] = int(_get_unique_element(element, 'xmin').text)
+                obj['ymax'] = int(_get_unique_element(element, 'ymax').text)
+                obj['ymin'] = int(_get_unique_element(element, 'ymin').text)
+            else:
+                obj[element.tag] = element.text
+        objects.append(obj)
 
     return {'width':    width,
             'height':   height,

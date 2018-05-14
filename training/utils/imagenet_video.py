@@ -16,7 +16,7 @@ class ImageNetVideoDataset(data.Dataset):
                  transform=None,
                  loader: Callable[[str], Image.Image] = default_loader):
         # Load synsets.
-        self.synsets, self.wnid2id = load_synsets()
+        self.synsets, _, self.wnid2id = load_synsets()
         self.num_classes = len(self.synsets)
 
         # Load WordNet Hierarchy.
@@ -93,10 +93,10 @@ class ImageNetVideoDataset(data.Dataset):
         valid_objs = []
         obj_map = {}
         for idx, obj in enumerate(cur_annotation['objects']):
-            obj_map[obj['name']] = idx
+            obj_map[obj['trackid']] = idx
         for idx, obj in enumerate(prev_annotation['objects']):
-            if obj['name'] in obj_map:
-                valid_objs.append((obj_map[obj['name']], idx))
+            if obj['trackid'] in obj_map:
+                valid_objs.append((obj_map[obj['trackid']], idx))
         if len(valid_objs) < 1:
             return self[np.random.randint(len(self))]  # Randomly pick another sample.
         cur_obj_idx, prev_obj_idx = valid_objs[np.random.randint(0, len(valid_objs))]
@@ -109,7 +109,7 @@ class ImageNetVideoDataset(data.Dataset):
             class_labels = self._resolve_class_label(name)
 
         # Scale factor of the interest region to the bounding box.
-        scale_factor = np.random.uniform(0.7, 1.1) if self._subset == 'train' else 1
+        scale_factor = np.random.uniform(0.75, 1.25) if self._subset == 'train' else 1
 
         # Crop the patch of the target in the current frame.
         xmin = cur_annotation['objects'][cur_obj_idx]['xmin']
@@ -120,8 +120,10 @@ class ImageNetVideoDataset(data.Dataset):
         y_mid = (ymin + ymax) * 0.5
         target_patch_size = min(max(xmax - xmin, ymax - ymin) * scale_factor,
                                 min(cur_annotation['width'], cur_annotation['height']))
-        target_patch_xmin = max(0, int(x_mid - target_patch_size * 0.5))
-        target_patch_ymin = max(0, int(y_mid - target_patch_size * 0.5))
+        target_patch_xmin = min(cur_annotation['width'] - target_patch_size,
+                                max(0, int(x_mid - target_patch_size * 0.5)))
+        target_patch_ymin = min(cur_annotation['height'] - target_patch_size,
+                                max(0, int(y_mid - target_patch_size * 0.5)))
         target_patch_xmax = target_patch_xmin + target_patch_size
         target_patch_ymax = target_patch_ymin + target_patch_size
         cur_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + cur_frame + '.JPEG')
@@ -162,9 +164,9 @@ class ImageNetVideoDataset(data.Dataset):
             neg_patch_size = target_patch_size \
                              * np.random.uniform(0.5, min(1.5, min(cur_annotation['width'],
                                                                    cur_annotation['height']) / target_patch_size))
-            neg_patch_xmin = min(max(target_patch_xmin + target_patch_size * np.random.uniform(-0.4, 0.4), 0),
+            neg_patch_xmin = min(max(target_patch_xmin + target_patch_size * np.random.uniform(-0.5, 0.5), 0),
                                  cur_annotation['width'] - neg_patch_size)
-            neg_patch_ymin = min(max(target_patch_ymin + target_patch_size * np.random.uniform(-0.4, 0.4), 0),
+            neg_patch_ymin = min(max(target_patch_ymin + target_patch_size * np.random.uniform(-0.5, 0.5), 0),
                                  cur_annotation['height'] - neg_patch_size)
             neg_patch_xmax = neg_patch_xmin + neg_patch_size
             neg_patch_ymax = neg_patch_ymin + neg_patch_size

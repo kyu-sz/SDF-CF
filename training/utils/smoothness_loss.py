@@ -19,10 +19,8 @@ class SmoothnessLoss(nn.Module):
                                   0, patch_width - 1)
         target_ymin = torch.clamp((patch_height * target_bbox[:, 1]).int(),
                                   0, patch_height - 1)
-        target_xmax = torch.clamp(target_xmin + target_w,
-                                  0, patch_width - 1)
-        target_ymax = torch.clamp(target_ymin + target_h,
-                                  0, patch_height - 1)
+        target_xmax = torch.clamp(target_xmin + target_w, max=patch_width)
+        target_ymax = torch.clamp(target_ymin + target_h, max=patch_height)
 
         pos_w = torch.clamp(torch.ceil(patch_width * (1 + pos_bbox[:, 2])).int(),
                             1, patch_width)
@@ -32,10 +30,8 @@ class SmoothnessLoss(nn.Module):
                                0, patch_width - 1)
         pos_ymin = torch.clamp((patch_height * pos_bbox[:, 1]).int(),
                                0, patch_height - 1)
-        pos_xmax = torch.clamp(pos_xmin + pos_w,
-                               0, patch_width - 1)
-        pos_ymax = torch.clamp(pos_ymin + pos_h,
-                               0, patch_height - 1)
+        pos_xmax = torch.clamp(pos_xmin + pos_w, max=patch_width)
+        pos_ymax = torch.clamp(pos_ymin + pos_h, max=patch_height)
 
         intersect_xmin = torch.max(target_xmin, pos_xmin)
         intersect_xmax = torch.min(target_xmax, pos_xmax)
@@ -46,8 +42,7 @@ class SmoothnessLoss(nn.Module):
 
         pos_loss = torch.zeros(1).cuda(non_blocking=True)
         neg_loss = torch.zeros(1).cuda(non_blocking=True)
-
-        weight_sum = torch.autograd.Variable(torch.zeros(1), requires_grad=False).cuda(async=True)
+        weight_sum = torch.zeros(1).cuda(non_blocking=True)
         for i in range(target.shape[0]):
             if intersect_width[i] > 0 and intersect_height[i] > 0:
                 # Calculate the weight (relevance between the feature map and the target)
@@ -68,7 +63,7 @@ class SmoothnessLoss(nn.Module):
                 # Sum up the weight for normalization.
                 weight_sum += weight
 
-        if weight_sum.data[0] == 0:
+        if weight_sum.item() == 0:
             return pos_loss, neg_loss
         else:
             return pos_loss / weight_sum, neg_loss / weight_sum
