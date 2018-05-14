@@ -67,12 +67,14 @@ def download_web_file(url: str, path: str) -> None:
 
 
 def load_synsets() -> (List[str], List[str], Dict[str, int]):
-    synset_list_url = 'http://www.image-net.org/api/text/imagenet.bbox.obtain_synset_list'
-    synset_list_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'synset_list.txt')
+    # Cache the downloaded contents in the same directory as this script.
+    cache_dir = os.path.dirname(os.path.realpath(__file__))
 
+    # Load list of synsets.
+    synset_list_file = os.path.join(cache_dir, 'synset_list.txt')
     if not os.path.isfile(synset_list_file):
+        synset_list_url = 'http://www.image-net.org/api/text/imagenet.bbox.obtain_synset_list'
         download_web_file(synset_list_url, synset_list_file)
-
     list = []
     wnid2id = {}
     with open(synset_list_file, 'r') as f:
@@ -81,7 +83,19 @@ def load_synsets() -> (List[str], List[str], Dict[str, int]):
             list.append(wnid)
             wnid2id[wnid] = i
 
-    desc_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'synset_desc.txt')
+    # Load hierarchy among synsets.
+    hierarchy_file = os.path.join(cache_dir, 'hierarchy.txt')
+    if not os.path.isfile(hierarchy_file):
+        hierarchy_url = 'http://www.image-net.org/archive/wordnet.is_a.txt'
+        download_web_file(hierarchy_url, hierarchy_file)
+    synset_parent = {}
+    with open(hierarchy_file, 'r') as f:
+        for line in f:
+            parent, child = line.split()
+            synset_parent[child] = parent
+
+    # Load description of each synset.
+    desc_file = os.path.join(cache_dir, 'synset_desc.txt')
     desc = [None] * len(list)
     num_desc_loaded = 0
     if os.path.isfile(desc_file):
@@ -90,7 +104,6 @@ def load_synsets() -> (List[str], List[str], Dict[str, int]):
                 if len(line):
                     desc[i] = line
                     num_desc_loaded += 1
-
     if num_desc_loaded != len(list):
         # Retrieve synset descriptions.
         print('Retrieving synset descriptions.')
@@ -101,7 +114,7 @@ def load_synsets() -> (List[str], List[str], Dict[str, int]):
                 f.write(desc[i] + '\n')
                 print('{}/{}: {}'.format(i, len(list), desc[i]))
 
-    return list, desc, wnid2id
+    return list, desc, wnid2id, synset_parent
 
 
 def bb_intersection_over_union(boxA, boxB):

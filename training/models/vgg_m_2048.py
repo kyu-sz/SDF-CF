@@ -56,11 +56,14 @@ class VGG_M_2048(nn.Module):
             ('pool5', nn.MaxPool2d(kernel_size=3, stride=2, padding=1)),
             ('fc6', nn.Conv2d(512, 4096, kernel_size=6, stride=1, padding=0)),
             ('relu6', nn.ReLU()),
+            ('dropout6', nn.Dropout()),
             ('fc7', nn.Conv2d(4096, 2048, kernel_size=1, stride=1, padding=0)),
-            ('relu7', nn.ReLU())]))
+            ('relu7', nn.ReLU()),
+            ('dropout7', nn.Dropout())]))
 
         self.classifier = nn.Sequential(OrderedDict([
             ('fc8ext', nn.Conv2d(2048, num_classes, kernel_size=1, stride=1, padding=0)),
+            ('dropout8', nn.Dropout()),
             ('prob', nn.Softmax(dim=1))]))
 
         self.bbox_reg = nn.Conv2d(2048, 4, kernel_size=1, stride=1, padding=0)
@@ -155,6 +158,9 @@ class VGG_M_2048(nn.Module):
                              'type':     'softmax',
                              'weights':  [],
                              'precious': 0}
+                elif type(module) is nn.Dropout:
+                    # Do nothing for dropout.
+                    pass
                 else:
                     print('Matlab conversion for {} is not implemented!'.format(type(module)))
                     raise NotImplementedError

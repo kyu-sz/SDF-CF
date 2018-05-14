@@ -2,6 +2,7 @@ import argparse
 import os
 import random
 import shutil
+import math
 import time
 
 import numpy as np
@@ -240,6 +241,11 @@ def train(train_loader: torch.utils.data.DataLoader,
                     cls_loss=cls_losses,
                     bbox_loss=bbox_losses))
 
+        # Terminate if any of the losses becomes NaN.
+        if math.isnan(pos_loss.item()) or math.isnan(neg_loss.item()) or math.isnan(cls_loss.item())\
+                or math.isnan(bbox_loss.item()):
+            exit(1)
+
         if iter % args.vis_freq == 0:
             concat_imgs = torch.zeros((target.shape[0], target.shape[1], target.shape[2], target.shape[3] * 3 + 4))
 
@@ -278,6 +284,7 @@ def validate(val_loader, model, smoothness_criterion, bbox_criterion, cls_criter
         target = target.cuda(non_blocking=True)
         pos_sample = pos_sample.cuda(non_blocking=True)
         neg_sample = neg_sample.cuda(non_blocking=True)
+        cid = cid.float().cuda(non_blocking=True)
         bbox = bbox.cuda(non_blocking=True)
         pos_bbox = pos_bbox.cuda(non_blocking=True)
 

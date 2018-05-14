@@ -16,15 +16,8 @@ class ImageNetVideoDataset(data.Dataset):
                  transform=None,
                  loader: Callable[[str], Image.Image] = default_loader):
         # Load synsets.
-        self.synsets, _, self.wnid2id = load_synsets()
+        self.synsets, _, self.wnid2id, self._synset_parent = load_synsets()
         self.num_classes = len(self.synsets)
-
-        # Load WordNet Hierarchy.
-        self._synset_parent = {}
-        for line in read_web_file('http://www.image-net.org/archive/wordnet.is_a.txt').split('\n'):
-            if len(line):
-                parent, child = line.split()
-                self._synset_parent[child] = parent
 
         # Cache class labels for synset.
         self._class_label_cache = {}
@@ -118,7 +111,7 @@ class ImageNetVideoDataset(data.Dataset):
         ymax = cur_annotation['objects'][cur_obj_idx]['ymax']
         x_mid = (xmin + xmax) * 0.5
         y_mid = (ymin + ymax) * 0.5
-        target_patch_size = min(max(xmax - xmin, ymax - ymin) * scale_factor,
+        target_patch_size = min(max(7, max(xmax - xmin, ymax - ymin) * scale_factor),
                                 min(cur_annotation['width'], cur_annotation['height']))
         target_patch_xmin = min(cur_annotation['width'] - target_patch_size,
                                 max(0, int(x_mid - target_patch_size * 0.5)))
@@ -143,7 +136,7 @@ class ImageNetVideoDataset(data.Dataset):
         prev_ymax = prev_annotation['objects'][prev_obj_idx]['ymax']
         pos_x_mid = (prev_xmin + prev_xmax) * 0.5
         pos_y_mid = (prev_ymin + prev_ymax) * 0.5
-        pos_patch_size = min(max(prev_xmax - prev_xmin, prev_ymax - prev_ymin) * scale_factor,
+        pos_patch_size = min(max(7, max(prev_xmax - prev_xmin, prev_ymax - prev_ymin) * scale_factor),
                              min(prev_annotation['width'], prev_annotation['height']))
         pos_patch_xmin = max(0, int(pos_x_mid - target_patch_size * 0.5))
         pos_patch_ymin = max(0, int(pos_y_mid - target_patch_size * 0.5))
@@ -164,7 +157,7 @@ class ImageNetVideoDataset(data.Dataset):
             neg_patch_size = target_patch_size \
                              * np.random.uniform(0.5, min(1.5, min(cur_annotation['width'],
                                                                    cur_annotation['height']) / target_patch_size))
-            neg_patch_xmin = min(max(target_patch_xmin + target_patch_size * np.random.uniform(-0.5, 0.5), 0),
+            neg_patch_xmin = min(max(7, max(target_patch_xmin + target_patch_size * np.random.uniform(-0.5, 0.5), 0)),
                                  cur_annotation['width'] - neg_patch_size)
             neg_patch_ymin = min(max(target_patch_ymin + target_patch_size * np.random.uniform(-0.5, 0.5), 0),
                                  cur_annotation['height'] - neg_patch_size)

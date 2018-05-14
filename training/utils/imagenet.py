@@ -18,7 +18,7 @@ class ImageNetDataset(data.Dataset):
                  transform=None,
                  loader: Callable[[str], Image.Image] = default_loader):
         # Load synsets.
-        self.synsets, self.synset_desc, self.wnid2id = load_synsets()
+        self.synsets, self.synset_desc, self.wnid2id, _ = load_synsets()
         self.num_classes = len(self.synsets)
 
         self._transform = transform if transform is not None else transforms.ToTensor()
