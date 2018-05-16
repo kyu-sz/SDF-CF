@@ -1,0 +1,3 @@
+[submodule "tracking/src/external_libs/pytorch"]
+	path = tracking/src/external_libs/pytorch
+	url = https://github.com/pytorch/pytorch.git
