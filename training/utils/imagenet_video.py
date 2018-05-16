@@ -113,20 +113,24 @@ class ImageNetVideoDataset(data.Dataset):
         target_xmax = cur_annotation['objects'][cur_obj_idx]['xmax']
         target_ymin = cur_annotation['objects'][cur_obj_idx]['ymin']
         target_ymax = cur_annotation['objects'][cur_obj_idx]['ymax']
-        target_xmid = (target_xmin + target_xmax) * 0.5
-        target_ymid = (target_ymin + target_ymax) * 0.5
         target_width = target_xmax - target_xmin
         target_height = target_ymax - target_ymin
+        if target_width < 7 or target_height < 7:   # Bad sample!
+            return self[np.random.randint(len(self))]  # Randomly pick another sample.
+        target_xmid = (target_xmin + target_xmax) * 0.5
+        target_ymid = (target_ymin + target_ymax) * 0.5
         target_side_len = max(target_width, target_height)
 
         prev_xmin = prev_annotation['objects'][prev_obj_idx]['xmin']
         prev_xmax = prev_annotation['objects'][prev_obj_idx]['xmax']
         prev_ymin = prev_annotation['objects'][prev_obj_idx]['ymin']
         prev_ymax = prev_annotation['objects'][prev_obj_idx]['ymax']
-        prev_xmid = (prev_xmin + prev_xmax) * 0.5
-        prev_ymid = (prev_ymin + prev_ymax) * 0.5
         prev_width = prev_xmax - prev_xmin
         prev_height = prev_ymax - prev_ymin
+        if target_width < 7 or target_height < 7:   # Bad sample!
+            return self[np.random.randint(len(self))]  # Randomly pick another sample.
+        prev_xmid = (prev_xmin + prev_xmax) * 0.5
+        prev_ymid = (prev_ymin + prev_ymax) * 0.5
         prev_side_len = max(prev_width, prev_height)
 
         # Scale factor of the interest region to the bounding box.

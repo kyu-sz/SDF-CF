@@ -100,10 +100,12 @@ class ImageNetDataset(data.Dataset):
         target_xmax = obj_annotation['xmax']
         target_ymin = obj_annotation['ymin']
         target_ymax = obj_annotation['ymax']
-        target_xmid = (target_xmin + target_xmax) * 0.5
-        target_ymid = (target_ymin + target_ymax) * 0.5
         target_width = target_xmax - target_xmin
         target_height = target_ymax - target_ymin
+        if target_width < 7 or target_height < 7:   # Bad sample!
+            return self[np.random.randint(len(self))]  # Randomly pick another sample.
+        target_xmid = (target_xmin + target_xmax) * 0.5
+        target_ymid = (target_ymin + target_ymax) * 0.5
         target_side_len = max(target_width, target_height)
         sf_min = max([7. / target_width, 7. / target_height])
         sf_max = min([min(target_xmid, img.width - target_xmid) * 2. / target_side_len,
