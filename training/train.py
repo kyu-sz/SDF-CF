@@ -62,9 +62,9 @@ parser.add_argument('--vis', action='store_true')
 
 best_loss = 0
 
-torch.manual_seed(0)
-np.random.seed(0)
-random.seed(0)
+# torch.manual_seed(0)
+# np.random.seed(0)
+# random.seed(0)
 
 
 def main():
@@ -90,7 +90,7 @@ def main():
             num_workers=args.workers, pin_memory=True, sampler=train_sampler)
     val_loader = torch.utils.data.DataLoader(
             ImageNetVideoDataset(osp.join(args.imagenet_video_dir, 'ILSVRC'), 'val', img_transform),
-            batch_size=args.batch_size, shuffle=False,
+            batch_size=16, shuffle=False,
             num_workers=args.workers, pin_memory=True)
 
     # create model
@@ -159,7 +159,7 @@ def main():
 
 
 def to_np(x):
-    return x.data.cpu().numpy()
+    return x.cpu().numpy()
 
 
 def train(train_loader: torch.utils.data.DataLoader,
@@ -182,9 +182,11 @@ def train(train_loader: torch.utils.data.DataLoader,
     # Switch to train mode
     model.train()
 
+    if not max_iter:
+        max_iter = len(train_loader)
     end = time.time()
     for iter, (target, pos_sample, neg_sample, cid, bbox, pos_bbox) in enumerate(train_loader):
-        if max_iter and iter >= max_iter:
+        if iter >= max_iter:
             break
 
         # measure data loading time
@@ -235,7 +237,7 @@ def train(train_loader: torch.utils.data.DataLoader,
                   'Overall loss {smoothness_loss.val:.4f} ({smoothness_loss.avg:.4f})\t'
                   'Classification loss {cls_loss.val:.4f} ({cls_loss.avg:.4f})\t'
                   'Bounding box regression loss {bbox_loss.val:.4f} ({bbox_loss.avg:.4f})'.format(
-                    epoch, iter, max_iter if max_iter else len(train_loader),
+                    epoch, iter, max_iter,
                     batch_time=batch_time, data_time=data_time,
                     pos_loss=pos_losses, neg_loss=neg_losses, smoothness_loss=smoothness_losses,
                     cls_loss=cls_losses,
@@ -259,13 +261,13 @@ def train(train_loader: torch.utils.data.DataLoader,
 
             sample_list = [concat_imgs[b, ...] for b in range(concat_imgs.shape[0])]
 
-            logger.image_summary('training/samples', sample_list, epoch * len(train_loader) + iter)
+            logger.image_summary('training/samples', sample_list, epoch * max_iter + iter)
 
-        logger.scalar_summary('training/smoothness_losses', smoothness_loss.item(), epoch * len(train_loader) + iter)
-        logger.scalar_summary('training/pos_losses', pos_loss.item(), epoch * len(train_loader) + iter)
-        logger.scalar_summary('training/neg_losses', neg_loss.item(), epoch * len(train_loader) + iter)
-        logger.scalar_summary('training/cls_losses', cls_loss.item(), epoch * len(train_loader) + iter)
-        logger.scalar_summary('training/bbox_losses', bbox_loss.item(), epoch * len(train_loader) + iter)
+        logger.scalar_summary('training/smoothness_losses', smoothness_loss.item(), epoch * max_iter + iter)
+        logger.scalar_summary('training/pos_losses', pos_loss.item(), epoch * max_iter + iter)
+        logger.scalar_summary('training/neg_losses', neg_loss.item(), epoch * max_iter + iter)
+        logger.scalar_summary('training/cls_losses', cls_loss.item(), epoch * max_iter + iter)
+        logger.scalar_summary('training/bbox_losses', bbox_loss.item(), epoch * max_iter + iter)
 
 
 def validate(val_loader, model, smoothness_criterion, bbox_criterion, cls_criterion, epoch, logger):
@@ -275,7 +277,7 @@ def validate(val_loader, model, smoothness_criterion, bbox_criterion, cls_criter
     bbox_losses = AverageMeter()
     cls_losses = AverageMeter()
 
-    # switch to evaluate mode
+    # switch to evaluation mode
     model.eval()
 
     end = time.time()

@@ -93,6 +93,13 @@ class ImageNetVideoDataset(data.Dataset):
         if len(valid_objs) < 1:
             return self[np.random.randint(len(self))]  # Randomly pick another sample.
         cur_obj_idx, prev_obj_idx = valid_objs[np.random.randint(0, len(valid_objs))]
+        
+        # Try load the images.
+        try:
+            cur_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + cur_frame + '.JPEG')
+            prev_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + prev_frame + '.JPEG')
+        except OSError:
+            return self[np.random.randint(len(self))]  # Randomly pick another sample.
 
         # Resolve class labels.
         name = cur_annotation['objects'][cur_obj_idx]['name']
@@ -101,45 +108,58 @@ class ImageNetVideoDataset(data.Dataset):
         else:
             class_labels = self._resolve_class_label(name)
 
-        # Scale factor of the interest region to the bounding box.
-        scale_factor = np.random.uniform(0.75, 1.25) if self._subset == 'train' else 1
+        # Read the annotations.
+        target_xmin = cur_annotation['objects'][cur_obj_idx]['xmin']
+        target_xmax = cur_annotation['objects'][cur_obj_idx]['xmax']
+        target_ymin = cur_annotation['objects'][cur_obj_idx]['ymin']
+        target_ymax = cur_annotation['objects'][cur_obj_idx]['ymax']
+        target_xmid = (target_xmin + target_xmax) * 0.5
+        target_ymid = (target_ymin + target_ymax) * 0.5
+        target_width = target_xmax - target_xmin
+        target_height = target_ymax - target_ymin
+        target_side_len = max(target_width, target_height)
 
-        # Crop the patch of the target in the current frame.
-        xmin = cur_annotation['objects'][cur_obj_idx]['xmin']
-        xmax = cur_annotation['objects'][cur_obj_idx]['xmax']
-        ymin = cur_annotation['objects'][cur_obj_idx]['ymin']
-        ymax = cur_annotation['objects'][cur_obj_idx]['ymax']
-        x_mid = (xmin + xmax) * 0.5
-        y_mid = (ymin + ymax) * 0.5
-        target_patch_size = min(max(7, max(xmax - xmin, ymax - ymin) * scale_factor),
-                                min(cur_annotation['width'], cur_annotation['height']))
-        target_patch_xmin = min(cur_annotation['width'] - target_patch_size,
-                                max(0, int(x_mid - target_patch_size * 0.5)))
-        target_patch_ymin = min(cur_annotation['height'] - target_patch_size,
-                                max(0, int(y_mid - target_patch_size * 0.5)))
-        target_patch_xmax = target_patch_xmin + target_patch_size
-        target_patch_ymax = target_patch_ymin + target_patch_size
-        cur_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + cur_frame + '.JPEG')
-        cur_target = cur_img.crop((target_patch_xmin, target_patch_ymin, target_patch_xmax, target_patch_ymax))
-
-        # Calculate bounding box regression target.
-        bbox_x = (xmin + xmax - target_patch_xmin - target_patch_xmax) * 0.5 / target_patch_size
-        bbox_y = (ymin + ymax - target_patch_ymin - target_patch_ymax) * 0.5 / target_patch_size
-        bbox_width = (xmax - xmin) / target_patch_size - 1
-        bbox_height = (ymax - ymin) / target_patch_size - 1
-
-        # Use the target from the previous frame as the positive sample for smoothness training.
-        prev_img = self._loader(self._data_dir + '/Data/VID/' + self._subset + '/' + prev_frame + '.JPEG')
         prev_xmin = prev_annotation['objects'][prev_obj_idx]['xmin']
         prev_xmax = prev_annotation['objects'][prev_obj_idx]['xmax']
         prev_ymin = prev_annotation['objects'][prev_obj_idx]['ymin']
         prev_ymax = prev_annotation['objects'][prev_obj_idx]['ymax']
-        pos_x_mid = (prev_xmin + prev_xmax) * 0.5
-        pos_y_mid = (prev_ymin + prev_ymax) * 0.5
-        pos_patch_size = min(max(7, max(prev_xmax - prev_xmin, prev_ymax - prev_ymin) * scale_factor),
-                             min(prev_annotation['width'], prev_annotation['height']))
-        pos_patch_xmin = max(0, int(pos_x_mid - target_patch_size * 0.5))
-        pos_patch_ymin = max(0, int(pos_y_mid - target_patch_size * 0.5))
+        prev_xmid = (prev_xmin + prev_xmax) * 0.5
+        prev_ymid = (prev_ymin + prev_ymax) * 0.5
+        prev_width = prev_xmax - prev_xmin
+        prev_height = prev_ymax - prev_ymin
+        prev_side_len = max(prev_width, prev_height)
+
+        # Scale factor of the interest region to the bounding box.
+        if self._subset == 'train':
+            sf_min = max([7. / target_width, 7. / target_height, 7. / prev_width, 7. / prev_height])
+            sf_max = min([min(target_xmid, cur_img.width - target_xmid) * 2. / target_side_len,
+                          min(target_ymid, cur_img.height - target_ymid) * 2. / target_side_len,
+                          min(prev_xmid, prev_img.width - prev_xmid) * 2. / prev_side_len,
+                          min(prev_ymid, prev_img.height - prev_ymid) * 2. / prev_side_len])
+            scale_factor = np.random.uniform(max(min(0.75, sf_max), sf_min), min(1.25, sf_max))
+        else:
+            sf_min = 1
+            sf_max = 1
+            scale_factor = 1
+
+        # Crop the patch of the target in the current frame.
+        target_patch_size = int(target_side_len * scale_factor)
+        target_patch_xmin = int(target_xmid - target_patch_size * 0.5)
+        target_patch_ymin = int(target_ymid - target_patch_size * 0.5)
+        target_patch_xmax = target_patch_xmin + target_patch_size
+        target_patch_ymax = target_patch_ymin + target_patch_size
+        cur_target = cur_img.crop((target_patch_xmin, target_patch_ymin, target_patch_xmax, target_patch_ymax))
+
+        # Calculate bounding box regression target.
+        bbox_x = (target_xmin + target_xmax - target_patch_xmin - target_patch_xmax) * 0.5 / target_patch_size
+        bbox_y = (target_ymin + target_ymax - target_patch_ymin - target_patch_ymax) * 0.5 / target_patch_size
+        bbox_width = target_width / target_patch_size - 1
+        bbox_height = target_height / target_patch_size - 1
+
+        # Use the target from the previous frame as the positive sample for smoothness training.
+        pos_patch_size = int(prev_side_len * scale_factor)
+        pos_patch_xmin = int(prev_xmid - target_patch_size * 0.5)
+        pos_patch_ymin = int(prev_ymid - target_patch_size * 0.5)
         pos_patch_xmax = pos_patch_xmin + pos_patch_size
         pos_patch_ymax = pos_patch_ymin + pos_patch_size
         pos_sample = prev_img.crop((pos_patch_xmin,
@@ -148,19 +168,17 @@ class ImageNetVideoDataset(data.Dataset):
                                     pos_patch_ymax))
         pos_bbox_x = (prev_xmin + prev_xmax - pos_patch_xmin - pos_patch_xmax) * 0.5 / pos_patch_size
         pos_bbox_y = (prev_ymin + prev_ymax - pos_patch_ymin - pos_patch_ymax) * 0.5 / pos_patch_size
-        pos_bbox_width = (prev_xmax - prev_xmin) / pos_patch_size - 1
-        pos_bbox_height = (prev_ymax - prev_ymin) / pos_patch_size - 1
+        pos_bbox_width = prev_width / pos_patch_size - 1
+        pos_bbox_height = prev_height / pos_patch_size - 1
 
         # Pick negative sample for smoothness task.
         if self._subset == 'train':
             # For training, pick a neighboring area as the negative peer.
-            neg_patch_size = target_patch_size \
-                             * np.random.uniform(0.5, min(1.5, min(cur_annotation['width'],
-                                                                   cur_annotation['height']) / target_patch_size))
-            neg_patch_xmin = min(max(7, max(target_patch_xmin + target_patch_size * np.random.uniform(-0.5, 0.5), 0)),
-                                 cur_annotation['width'] - neg_patch_size)
+            neg_patch_size = target_side_len * np.random.uniform(max(min(0.5, sf_max), sf_min), min(1.5, sf_max))
+            neg_patch_xmin = min(max(target_patch_xmin + target_patch_size * np.random.uniform(-0.5, 0.5), 0),
+                                 cur_img.width - neg_patch_size)
             neg_patch_ymin = min(max(target_patch_ymin + target_patch_size * np.random.uniform(-0.5, 0.5), 0),
-                                 cur_annotation['height'] - neg_patch_size)
+                                 cur_img.height - neg_patch_size)
             neg_patch_xmax = neg_patch_xmin + neg_patch_size
             neg_patch_ymax = neg_patch_ymin + neg_patch_size
         else:

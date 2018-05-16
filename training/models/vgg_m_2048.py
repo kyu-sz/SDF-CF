@@ -105,7 +105,7 @@ class VGG_M_2048(nn.Module):
             if self.class_names is None or self.class_desc is None:
                 raise RuntimeError('Class names and descriptions not available for model saving to Matlab!')
 
-            model_dict = {'layers': [],
+            model_dict = {'layers': [[]],
                           'meta':   {'inputs':        {'name': 'data',
                                                        'size': [224, 224, 3, 10]},
                                      'classes':       {'name':        self.class_names,
@@ -124,35 +124,38 @@ class VGG_M_2048(nn.Module):
                              'type':     'conv',
                              'weights':  [np.transpose(module.weight.data.cpu().numpy(), [2, 3, 1, 0]),
                                           module.bias.data.cpu().numpy()],
-                             'size':     [float(module.kernel_size[0]),
+                             'size':     [[float(module.kernel_size[0]),
                                           float(module.kernel_size[1]),
                                           float(module.in_channels),
-                                          float(module.out_channels)],
-                             'pad':      [module.padding, module.padding, module.padding, module.padding],
-                             'stride':   [float(module.stride[0]), float(module.stride[1])],
-                             'dilation': [float(module.dilation[0]), float(module.dilation[1])]}
+                                          float(module.out_channels)]],
+                             'pad':      [[float(module.padding[0])] * 4],
+                             'stride':   [[float(module.stride[0]), float(module.stride[1])]],
+                             'dilation': [[float(module.dilation[0]), float(module.dilation[1])]]}
                 elif type(module) is nn.ReLU:
                     layer = {'name':     name,
                              'type':     'relu',
-                             'leak':     0,
+                             'leak':     0.,
                              'weights':  [],
                              'precious': 0}
                 elif type(module) is nn.CrossMapLRN2d:
                     layer = {'name':     name,
                              'type':     'lrn',
-                             'param':    [float(module.size), float(module.k), float(module.alpha), float(module.beta)],
+                             'param':    [[float(module.size),
+                                           float(module.k),
+                                           float(module.alpha),
+                                           float(module.beta)]],
                              'weights':  [],
                              'precious': 0}
                 elif type(module) is nn.MaxPool2d:
                     layer = {'name':     name,
                              'type':     'pool',
                              'method':   'max',
-                             'pool':     [float(module.kernel_size), float(module.kernel_size)],
-                             'stride':   [float(module.stride), float(module.stride)],
-                             'pad':      [0, 1, 0, 1],
+                             'pool':     [[float(module.kernel_size), float(module.kernel_size)]],
+                             'stride':   [[float(module.stride), float(module.stride)]],
+                             'pad':      [[0., 1., 0., 1.]],
                              'weights':  [],
                              'precious': 0,
-                             'opts':     []}
+                             'opts':     {}}
                 elif type(module) is nn.Softmax:
                     layer = {'name':     name,
                              'type':     'softmax',
@@ -160,11 +163,11 @@ class VGG_M_2048(nn.Module):
                              'precious': 0}
                 elif type(module) is nn.Dropout:
                     # Do nothing for dropout.
-                    pass
+                    continue
                 else:
                     print('Matlab conversion for {} is not implemented!'.format(type(module)))
                     raise NotImplementedError
-                model_dict['layers'].append(layer)
+                model_dict['layers'][0].append(layer)
             scipy.io.savemat(model_path, mdict=model_dict, oned_as='column')
         elif 'pth' in model_path:
             torch.save({'state_dict': self.state_dict()}, model_path)

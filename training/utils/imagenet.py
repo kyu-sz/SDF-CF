@@ -95,48 +95,53 @@ class ImageNetDataset(data.Dataset):
             except OSError:  # The image is not available on the web.
                 return self[np.random.randint(len(self))]  # Randomly pick another sample.
 
+        # Read annotations.
+        target_xmin = obj_annotation['xmin']
+        target_xmax = obj_annotation['xmax']
+        target_ymin = obj_annotation['ymin']
+        target_ymax = obj_annotation['ymax']
+        target_xmid = (target_xmin + target_xmax) * 0.5
+        target_ymid = (target_ymin + target_ymax) * 0.5
+        target_width = target_xmax - target_xmin
+        target_height = target_ymax - target_ymin
+        target_side_len = max(target_width, target_height)
+        sf_min = max([7. / target_width, 7. / target_height])
+        sf_max = min([min(target_xmid, img.width - target_xmid) * 2. / target_side_len,
+                      min(target_ymid, img.height - target_ymid) * 2. / target_side_len])
+        scale_factor = np.random.uniform(max(min(0.75, sf_max), sf_min), min(1.25, sf_max))
+
         # Randomly flip the image.
         if np.random.randint(0, 2):
             img = ImageOps.mirror(img)
-            obj_annotation['xmin'] = img_annotation['width'] - obj_annotation['xmax']
-            obj_annotation['xmax'] = img_annotation['width'] - obj_annotation['xmin']
-            obj_annotation['ymin'] = img_annotation['height'] - obj_annotation['ymax']
-            obj_annotation['ymax'] = img_annotation['height'] - obj_annotation['ymin']
+            target_xmin = img.width - target_xmax
+            target_xmax = img.width - target_xmin
+            target_ymin = img.height - target_ymax
+            target_ymax = img.height - target_ymin
 
         # Crop a randomly scaled square patch of the object.
-        scale_factor = np.random.uniform(0.75, 1.25)
-        x_mid = (obj_annotation['xmin'] + obj_annotation['xmax']) * 0.5  # Middle of x-axis.
-        y_mid = (obj_annotation['ymin'] + obj_annotation['ymax']) * 0.5  # Middle of y-axis.
-        bbox_width = obj_annotation['xmax'] - obj_annotation['xmin']
-        bbox_height = obj_annotation['ymax'] - obj_annotation['ymin']
-        shorter_side_len = min(img_annotation['width'], img_annotation['height'])
-        target_patch_size = max(min(math.ceil(max(bbox_width, bbox_height) * scale_factor), shorter_side_len), 7)
-        target_xmin = min(img_annotation['width'] - target_patch_size,
-                          max(0, int(x_mid - target_patch_size * 0.5)))
-        target_ymin = min(img_annotation['height'] - target_patch_size,
-                          max(0, int(y_mid - target_patch_size * 0.5)))
-        target_xmax = target_xmin + target_patch_size
-        target_ymax = target_ymin + target_patch_size
-        target = img.crop((target_xmin, target_ymin, target_xmax, target_ymax))
+        target_patch_size = target_side_len * scale_factor
+        target_patch_xmin = target_xmid - target_patch_size * 0.5
+        target_patch_ymin = target_ymid - target_patch_size * 0.5
+        target_patch_xmax = target_patch_xmin + target_patch_size
+        target_patch_ymax = target_patch_ymin + target_patch_size
+        target = img.crop((target_patch_xmin, target_patch_ymin, target_patch_xmax, target_patch_ymax))
 
         # Calculate bounding box regression target.
-        bbox_x = (obj_annotation['xmin'] + obj_annotation['xmax'] - target_xmin - target_xmax) * 0.5 / target_patch_size
-        bbox_y = (obj_annotation['ymin'] + obj_annotation['ymax'] - target_ymin - target_ymax) * 0.5 / target_patch_size
-        bbox_width = (obj_annotation['xmax'] - obj_annotation['xmin']) / target_patch_size - 1
-        bbox_height = (obj_annotation['ymax'] - obj_annotation['ymin']) / target_patch_size - 1
+        bbox_x = (target_xmin + target_xmax - target_patch_xmin - target_patch_xmax) * 0.5 / target_patch_size
+        bbox_y = (target_ymin + target_ymax - target_patch_ymin - target_patch_ymax) * 0.5 / target_patch_size
+        bbox_width = target_width / target_patch_size - 1
+        bbox_height = target_height / target_patch_size - 1
 
         # Create a positive sample for smoothness training by rotating the target.
-        pos_sample = img.rotate(np.random.uniform(-15, 15), center=(x_mid, y_mid)) \
-            .crop((target_xmin, target_ymin, target_xmax, target_ymax))
+        pos_sample = img.rotate(np.random.uniform(-15, 15), center=(target_xmid, target_ymid)) \
+            .crop((target_patch_xmin, target_patch_ymin, target_patch_xmax, target_patch_ymax))
 
         # Create a negative sample for smoothness training by randomly scaling and shifting the bounding box.
-        neg_patch_size = int(target_patch_size
-                             * np.random.uniform(max(0.5, 7. / target_patch_size),
-                                                 min(1.5, float(shorter_side_len) / target_patch_size)))
-        neg_patch_xmin = min(max(target_xmin + target_patch_size * np.random.uniform(-0.5, 0.5), 0),
-                             img_annotation['width'] - neg_patch_size)
-        neg_patch_ymin = min(max(target_ymin + target_patch_size * np.random.uniform(-0.5, 0.5), 0),
-                             img_annotation['height'] - neg_patch_size)
+        neg_patch_size = target_side_len * np.random.uniform(max(min(0.5, sf_max), sf_min), min(1.5, sf_max))
+        neg_patch_xmin = min(max(target_patch_xmin + target_patch_size * np.random.uniform(-0.5, 0.5), 0),
+                             img.width - neg_patch_size)
+        neg_patch_ymin = min(max(target_patch_ymin + target_patch_size * np.random.uniform(-0.5, 0.5), 0),
+                             img.height - neg_patch_size)
         neg_patch_xmax = neg_patch_xmin + neg_patch_size
         neg_patch_ymax = neg_patch_ymin + neg_patch_size
         neg_sample = img.crop((neg_patch_xmin, neg_patch_ymin, neg_patch_xmax, neg_patch_ymax))
