@@ -229,7 +229,7 @@ def train(train_loader: torch.utils.data.DataLoader,
         end = time.time()
 
         if iter % args.print_freq == 0:
-            print('Smoothness epoch: [{0}][{1}/{2}]\t'
+            print('Epoch: [{0}][{1}/{2}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                   'Positive loss {pos_loss.val:.4f} ({pos_loss.avg:.4f})\t'
@@ -242,11 +242,6 @@ def train(train_loader: torch.utils.data.DataLoader,
                     pos_loss=pos_losses, neg_loss=neg_losses, smoothness_loss=smoothness_losses,
                     cls_loss=cls_losses,
                     bbox_loss=bbox_losses))
-
-        # Terminate if any of the losses becomes NaN.
-        if math.isnan(pos_loss.item()) or math.isnan(neg_loss.item()) or math.isnan(cls_loss.item())\
-                or math.isnan(bbox_loss.item()):
-            exit(1)
 
         if iter % args.vis_freq == 0:
             concat_imgs = torch.zeros((target.shape[0], target.shape[1], target.shape[2], target.shape[3] * 3 + 4))
@@ -262,6 +257,21 @@ def train(train_loader: torch.utils.data.DataLoader,
             sample_list = [concat_imgs[b, ...] for b in range(concat_imgs.shape[0])]
 
             logger.image_summary('training/samples', sample_list, epoch * max_iter + iter)
+
+        # Terminate if any of the losses becomes NaN.
+        if math.isnan(pos_loss.item()) or math.isnan(neg_loss.item()) or math.isnan(cls_loss.item())\
+                or math.isnan(bbox_loss.item()):
+            print('Terminate due to NaN loss!\nEpoch: [{0}][{1}/{2}]\t'
+                  'Positive loss {pos_loss.val:.4f} ({pos_loss.avg:.4f})\t'
+                  'Negative loss {neg_loss.val:.4f} ({neg_loss.avg:.4f})\t'
+                  'Overall loss {smoothness_loss.val:.4f} ({smoothness_loss.avg:.4f})\t'
+                  'Classification loss {cls_loss.val:.4f} ({cls_loss.avg:.4f})\t'
+                  'Bounding box regression loss {bbox_loss.val:.4f} ({bbox_loss.avg:.4f})'.format(
+                    epoch, iter, max_iter,
+                    pos_loss=pos_losses, neg_loss=neg_losses, smoothness_loss=smoothness_losses,
+                    cls_loss=cls_losses,
+                    bbox_loss=bbox_losses))
+            exit(1)
 
         logger.scalar_summary('training/smoothness_losses', smoothness_loss.item(), epoch * max_iter + iter)
         logger.scalar_summary('training/pos_losses', pos_loss.item(), epoch * max_iter + iter)

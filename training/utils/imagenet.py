@@ -69,10 +69,8 @@ class ImageNetDataset(data.Dataset):
 
         # Load the image.
         img_path = osp.join(self.image_dir(img_annotation['folder']), img_annotation['filename'] + '.JPEG')
-        try:  # Try loading it locally first.
-            img = self._loader(img_path)
-        except OSError:
-            # The image does not exist locally or is problematic. Try downloading it from web.
+
+        def _retrieve_img_from_web():
             mapping_api = "http://www.image-net.org/api/text/imagenet.synset.geturls.getmapping?wnid="
             try:
                 mappings = read_web_file(mapping_api + synset).split('\n')
@@ -87,9 +85,16 @@ class ImageNetDataset(data.Dataset):
                         ret = download_img(url,
                                            self.image_dir(img_annotation['folder']),
                                            img_annotation['filename'])
-                        if not ret:  # The image is not available on the web.
-                            return self[np.random.randint(len(self))]  # Randomly pick another sample.
-                        break
+                        return ret
+            return False
+
+        try:  # Try loading it locally first.
+            img = self._loader(img_path)
+        except OSError:
+            # The image does not exist locally or is problematic. Try downloading it from web.
+            ret = _retrieve_img_from_web()
+            if not ret:  # Download failed.
+                return self[np.random.randint(len(self))]  # Randomly pick another sample.
             try:
                 img = self._loader(img_path)
             except OSError:  # The image is not available on the web.
@@ -102,7 +107,7 @@ class ImageNetDataset(data.Dataset):
         target_ymax = obj_annotation['ymax']
         target_width = target_xmax - target_xmin
         target_height = target_ymax - target_ymin
-        if target_width < 7 or target_height < 7:   # Bad sample!
+        if target_width < 7 or target_height < 7:  # Bad sample!
             return self[np.random.randint(len(self))]  # Randomly pick another sample.
         target_xmid = (target_xmin + target_xmax) * 0.5
         target_ymid = (target_ymin + target_ymax) * 0.5
@@ -126,7 +131,16 @@ class ImageNetDataset(data.Dataset):
         target_patch_ymin = target_ymid - target_patch_size * 0.5
         target_patch_xmax = target_patch_xmin + target_patch_size
         target_patch_ymax = target_patch_ymin + target_patch_size
-        target = img.crop((target_patch_xmin, target_patch_ymin, target_patch_xmax, target_patch_ymax))
+        try:
+            target = img.crop((target_patch_xmin, target_patch_ymin, target_patch_xmax, target_patch_ymax))
+        except Image.DecompressionBombError:
+            # Try downloading and loading and cropping again.
+            try:
+                _retrieve_img_from_web()
+                img = self._loader(img_path)
+                target = img.crop((target_patch_xmin, target_patch_ymin, target_patch_xmax, target_patch_ymax))
+            except:
+                return self[np.random.randint(len(self))]  # Give up. Randomly pick another sample.
 
         # Calculate bounding box regression target.
         bbox_x = (target_xmin + target_xmax - target_patch_xmin - target_patch_xmax) * 0.5 / target_patch_size
