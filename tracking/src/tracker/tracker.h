@@ -2,12 +2,12 @@
 // Created by kaiy1 on 5/16/18.
 //
 
-#ifndef TRACKING_TRACKER_H
-#define TRACKING_TRACKER_H
+#include <stdbool.h>
+
+#ifndef TRACKER_H
+#define TRACKER_H
 
 #pragma once
-
-#include <stdbool.h>
 
 /// @brief A rectangle area.
 /// Structure for specifying a rectangle area in an image.
@@ -57,4 +57,4 @@ bool tracker_reset(void *tracker_handle, const ImageBGR *frame, const Rect *bndb
 /// @return Boolean indicating the freeing operation succeeds or not.
 bool tracker_free(void *tracker_handle);
 
-#endif //TRACKING_TRACKER_H
+#endif //TRACKER_H
